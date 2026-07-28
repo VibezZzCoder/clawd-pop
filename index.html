@@ -1,0 +1,921 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>Clawd Pop 3D</title>
+    <link rel="icon" href="data:," />
+    <style>
+      /* ---------------------------------------------------------------
+         Static branded shell. Inlined so the first paint is the title,
+         never a white flash. No font files: procedural-only asset rule.
+         --------------------------------------------------------------- */
+      :root {
+        --orange: #f2610a;
+        --teal: #1fc9c2;
+        --steel-0: #0d0f13;
+        --steel-1: #172028;
+        --steel-2: #293443;
+        --steel-3: #52647b;
+        --steel-4: #adc0c8;
+        --gold: #b08a5e;
+        --gold-hi: #f2e5c7;
+        --gold-lo: #3b240e;
+        --silver-hi: #e8e6dd;
+        --silver-lo: #7c8694;
+        --violet: #8169bd;
+        --ui-font: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+        /* --- touch layout (Milestone 7) ------------------------------------
+           Safe-area insets are read once here so every touch lane can be
+           expressed against them. `viewport-fit=cover` above is what makes them
+           non-zero on a notched phone. */
+        --safe-t: env(safe-area-inset-top, 0px);
+        --safe-r: env(safe-area-inset-right, 0px);
+        --safe-b: env(safe-area-inset-bottom, 0px);
+        --safe-l: env(safe-area-inset-left, 0px);
+        --touch-pad: 14px;
+        --stick-size: 132px;
+        --stick-travel: calc(var(--stick-size) / 2);
+        /* Minimum comfortable touch target. Buttons are larger; nothing is
+           smaller (MASTER_STARTER §12, Apple/Material 44px). */
+        --touch-min: 44px;
+        --btn-size: 54px;
+        /* Landscape: where the drag-to-aim region begins. Left of it is the
+           movement control area, so the two never overlap. */
+        --aim-split: 48%;
+        /* Portrait: the bottom control lane, and the top HUD lane the aim
+           region starts below so it cannot swallow the facility scan. */
+        --lane-h: 200px;
+        --hud-lane: 132px;
+      }
+
+      * { box-sizing: border-box; }
+
+      html, body {
+        margin: 0;
+        padding: 0;
+        height: 100%;
+        overflow: hidden;
+        /* Pull-to-refresh and rubber-banding are browser gestures that read as
+           the game losing input. Scoped to the document, which owns scrolling —
+           this is not a gesture blocker and cannot swallow a button press. */
+        overscroll-behavior: none;
+        background: var(--steel-0);
+        color: var(--steel-4);
+        font-family: var(--ui-font);
+        -webkit-font-smoothing: antialiased;
+      }
+
+      body { user-select: none; -webkit-user-select: none; }
+
+      #app { position: fixed; inset: 0; }
+
+      /* Gesture suppression is scoped to the *play* surfaces, never to `body`.
+         A document-wide `touch-action: none` also covers every menu, and the
+         menus are exactly where a tap has to keep behaving like a tap. */
+      canvas#view, #hud, #touch {
+        touch-action: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+
+      canvas#view { display: block; width: 100%; height: 100%; }
+
+      /* ---------------------------- overlays ---------------------------- */
+
+      .overlay {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        text-align: center;
+        padding: 24px;
+        background:
+          radial-gradient(ellipse at 50% 45%, rgba(41, 52, 67, 0.55), rgba(13, 15, 19, 0.94) 70%),
+          var(--steel-0);
+        z-index: 10;
+        /* `manipulation` keeps a tap instant by removing double-tap zoom while
+           leaving the tap itself entirely alone. Overlays are deliberately
+           *not* inside a `touch-action: none` subtree. */
+        touch-action: manipulation;
+        -webkit-tap-highlight-color: transparent;
+        overflow-y: auto;
+      }
+      .overlay[hidden] { display: none; }
+
+      /* ------------------------- CLAWD POP 3D --------------------------- */
+
+      .title { line-height: 1; margin-bottom: 34px; }
+
+      .title-main {
+        font-size: clamp(44px, 11vw, 116px);
+        font-weight: 900;
+        letter-spacing: 0.02em;
+        display: flex;
+        gap: 0.28em;
+        justify-content: center;
+        align-items: baseline;
+      }
+
+      .title-clawd {
+        color: var(--orange);
+        text-shadow:
+          0 2px 0 #8c3403,
+          0 4px 0 #5e2302,
+          0 6px 18px rgba(242, 97, 10, 0.45);
+      }
+
+      .title-pop {
+        color: var(--teal);
+        text-shadow:
+          0 2px 0 #0d7a76,
+          0 4px 0 #075350,
+          0 6px 18px rgba(31, 201, 194, 0.4);
+      }
+
+      /* "3D" — silver face, gold trim, stacked extrusion. */
+      .title-3d {
+        margin-top: 0.06em;
+        font-size: clamp(40px, 10.5vw, 108px);
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        text-indent: 0.14em;
+        background: linear-gradient(178deg, var(--silver-hi) 0%, #c7d1d9 38%, var(--silver-lo) 62%, #e2e0d8 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        -webkit-text-stroke: 2px var(--gold);
+        paint-order: stroke fill;
+        filter:
+          drop-shadow(0 1px 0 var(--gold-hi))
+          drop-shadow(0 3px 0 var(--gold))
+          drop-shadow(0 6px 0 var(--gold-lo))
+          drop-shadow(0 10px 16px rgba(0, 0, 0, 0.65));
+      }
+
+      .tagline {
+        margin-top: 18px;
+        font-size: clamp(11px, 1.5vw, 14px);
+        letter-spacing: 0.34em;
+        text-transform: uppercase;
+        color: var(--steel-3);
+      }
+
+      /* --------------------------- controls ---------------------------- */
+
+      .btn {
+        appearance: none;
+        border: 1px solid var(--gold);
+        border-radius: 2px;
+        background: linear-gradient(180deg, var(--steel-2), var(--steel-1));
+        color: var(--silver-hi);
+        font-family: inherit;
+        font-size: clamp(14px, 2vw, 18px);
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        padding: 14px 40px;
+        /* Every menu button is a real touch target, not only a mouse one. */
+        min-height: 48px;
+        min-width: var(--touch-min);
+        cursor: pointer;
+        touch-action: manipulation;
+        transition: background 120ms ease, transform 80ms ease;
+      }
+      .btn:hover { background: linear-gradient(180deg, var(--steel-3), var(--steel-2)); }
+      .btn:active { transform: translateY(1px); }
+      .btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
+
+      .hint {
+        margin-top: 22px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        color: var(--steel-3);
+        line-height: 1.9;
+      }
+      .hint kbd {
+        display: inline-block;
+        min-width: 1.6em;
+        padding: 1px 6px;
+        border: 1px solid var(--steel-3);
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        background: var(--steel-1);
+        color: var(--steel-4);
+        font: inherit;
+        font-size: 11px;
+      }
+
+      /* ----------------------------- HUD ------------------------------- */
+
+      #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
+      #hud[hidden] { display: none; }
+
+      #crosshair {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 22px;
+        height: 22px;
+        margin: -11px 0 0 -11px;
+      }
+      #crosshair::before,
+      #crosshair::after {
+        content: '';
+        position: absolute;
+        background: rgba(232, 230, 221, 0.85);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+      }
+      #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; margin-left: -1px; }
+      #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; margin-top: -1px; }
+      #crosshair.cooling::before,
+      #crosshair.cooling::after { background: rgba(129, 105, 189, 0.9); }
+
+      #hitmarker {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 30px;
+        height: 30px;
+        margin: -15px 0 0 -15px;
+        opacity: 0;
+        transform: rotate(45deg) scale(0.6);
+      }
+      #hitmarker::before,
+      #hitmarker::after {
+        content: '';
+        position: absolute;
+        background: var(--orange);
+      }
+      #hitmarker::before { left: 50%; top: 0; width: 3px; height: 100%; margin-left: -1.5px; }
+      #hitmarker::after { top: 50%; left: 0; height: 3px; width: 100%; margin-top: -1.5px; }
+      #hitmarker.show { animation: hit 220ms ease-out; }
+      @keyframes hit {
+        0%   { opacity: 1; transform: rotate(45deg) scale(0.5); }
+        100% { opacity: 0; transform: rotate(45deg) scale(1.15); }
+      }
+
+      #integrity {
+        position: absolute;
+        left: 28px;
+        bottom: 28px;
+        width: 216px;
+      }
+      #integrity .label {
+        font-size: 10px;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: var(--steel-3);
+        margin-bottom: 6px;
+      }
+      #integrity .bar {
+        height: 10px;
+        border: 1px solid var(--steel-3);
+        background: rgba(13, 15, 19, 0.6);
+      }
+      #integrity .fill {
+        height: 100%;
+        width: 100%;
+        background: var(--teal);
+        transition: width 140ms ease-out, background 240ms ease;
+      }
+      #integrity.low .fill { background: #d8452a; }
+
+      #damage {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        background: radial-gradient(ellipse at center, transparent 45%, rgba(216, 69, 42, 0.5) 100%);
+        transition: opacity 260ms ease-out;
+      }
+      #damage.show { opacity: 1; transition-duration: 40ms; }
+
+      /* Compact secondary HUD cluster. Unknown rooms stay deliberately hazy;
+         the canvas resolves each section from authoritative room-entry events. */
+      #minimap {
+        position: absolute;
+        left: 20px;
+        top: 20px;
+        width: 184px;
+        padding: 8px;
+        border: 1px solid rgba(120, 142, 173, 0.62);
+        background: linear-gradient(145deg, rgba(13, 15, 19, 0.84), rgba(23, 32, 40, 0.68));
+        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+      }
+      #minimap .label {
+        margin: 0 0 5px 1px;
+        color: var(--steel-3);
+        font: 700 9px/1 var(--ui-font);
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+      }
+      #minimap-canvas {
+        display: block;
+        width: 166px;
+        height: 120px;
+      }
+      @media (max-width: 600px), (max-height: 520px) {
+        #minimap {
+          left: 12px;
+          top: 12px;
+          width: 140px;
+          padding: 6px;
+        }
+        #minimap .label { font-size: 8px; }
+        #minimap-canvas {
+          width: 126px;
+          height: 88px;
+        }
+      }
+
+      /* Transient status line. DESIGN.md §6 permits a room/objective line only
+         when it changes — so it announces, then gets out of the way. It sits
+         high and never touches the central playfield. */
+      #status {
+        position: absolute;
+        left: 50%;
+        top: 12.5%;
+        transform: translateX(-50%);
+        text-align: center;
+        white-space: nowrap;
+        opacity: 0;
+        transition: opacity 320ms ease-out;
+      }
+      #status.show { opacity: 1; transition-duration: 110ms; }
+      #status .status-main {
+        font-size: clamp(15px, 2.1vw, 22px);
+        font-weight: 800;
+        letter-spacing: 0.36em;
+        text-indent: 0.36em;
+        text-transform: uppercase;
+        color: var(--silver-hi);
+        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+      }
+      #status .status-sub {
+        margin-top: 7px;
+        font-size: clamp(10px, 1.3vw, 12px);
+        letter-spacing: 0.3em;
+        text-indent: 0.3em;
+        text-transform: uppercase;
+        color: var(--teal);
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+      }
+      #status.alert .status-main { color: var(--orange); }
+      #status.secure .status-main { color: var(--teal); }
+      #status.secure .status-sub { color: var(--steel-4); }
+
+      /* In portrait the desktop status line overlapped the facility scan and
+         its unbroken objective text ran beyond both screen edges. Keep the
+         room name below the scan and let the secondary line wrap inside the
+         viewport; the announcement remains transient and non-interactive. */
+      @media (max-width: 600px) and (orientation: portrait) {
+        #status {
+          top: calc(var(--safe-t) + 130px);
+          width: calc(100% - 24px);
+        }
+        #status .status-main {
+          font-size: clamp(13px, 4vw, 17px);
+          letter-spacing: 0.22em;
+          text-indent: 0.22em;
+        }
+        #status .status-sub {
+          font-size: 10px;
+          line-height: 1.4;
+          letter-spacing: 0.16em;
+          text-indent: 0.16em;
+          white-space: normal;
+        }
+      }
+
+      /* Transient score notification, offset from the crosshair so it never
+         sits under the reticle the player is tracking with. */
+      #score-pop {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        margin: -66px 0 0 34px;
+        font: 700 clamp(15px, 1.9vw, 21px)/1.2 var(--ui-font);
+        letter-spacing: 0.08em;
+        color: var(--orange);
+        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+        opacity: 0;
+        white-space: nowrap;
+      }
+      #score-pop .chain {
+        margin-left: 8px;
+        font-size: 0.72em;
+        letter-spacing: 0.14em;
+        color: var(--teal);
+      }
+      #score-pop.show { animation: scorePop 700ms ease-out; }
+      @keyframes scorePop {
+        0%   { opacity: 0; transform: translateY(8px) scale(0.86); }
+        14%  { opacity: 1; transform: translateY(0) scale(1); }
+        70%  { opacity: 1; transform: translateY(-8px) scale(1); }
+        100% { opacity: 0; transform: translateY(-20px) scale(0.96); }
+      }
+
+      #capture-hint {
+        position: absolute;
+        left: 50%;
+        bottom: 84px;
+        transform: translateX(-50%);
+        padding: 9px 18px;
+        white-space: nowrap;
+        border: 1px solid var(--gold);
+        background: rgba(13, 15, 19, 0.86);
+        color: var(--steel-4);
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+      }
+      #capture-hint[hidden] { display: none; }
+      #capture-hint b { color: var(--teal); font-weight: 700; }
+
+      /* ------------------------ touch controls -------------------------- */
+
+      /* Milestone 7. Present only when `body.touch` is set from the device
+         probe (`shared/device.ts`) or `?touch=1`; the elements stay in the DOM
+         so `input/Touch.ts` binds to them either way, and `hidden` is what
+         keeps desktop hit-testing exactly as it was.
+
+         The two layouts are separate designs, not one squeezed the other way
+         (brief §16.4):
+
+           landscape — movement lane on the left of `--aim-split`, drag-to-aim
+                       region to the right of it, full height;
+           portrait  — aim region across the full width between the HUD lane and
+                       the bottom control lane, giving the vertical separation
+                       between moving and aiming that a one-handed grip needs.
+
+         In both, every interactive surface is disjoint from every other one and
+         from the HUD panels, which is what `tests/mobile.spec.ts` asserts. */
+
+      #touch {
+        position: fixed;
+        inset: 0;
+        z-index: 6;
+        /* The root is a positioning frame, not a gesture blocker. Only the four
+           designed surfaces below hit-test, so nothing outside them can be
+           silently swallowed. */
+        pointer-events: none;
+      }
+      #touch[hidden] { display: none; }
+
+      #touch-aim {
+        position: absolute;
+        pointer-events: auto;
+        /* Transparent by design: it is a gesture surface, and the central
+           playfield must stay clear (brief §22.3). The only mark it carries is
+           the fire affordance, parked in the corner. */
+        touch-action: none;
+      }
+
+      /* The visible fire affordance of brief §16.3, reconciled with the owner's
+         settled tap-anywhere scheme: it sits where the right thumb rests, and
+         it is not a separate hit target — `pointer-events: none`, so a tap on
+         it is just a tap in the region, and nothing can double-activate. */
+      #touch-fire-ring {
+        position: absolute;
+        right: calc(var(--safe-r) + 22px);
+        bottom: calc(var(--safe-b) + 24px);
+        width: 62px;
+        height: 62px;
+        border: 2px solid rgba(232, 230, 221, 0.42);
+        border-radius: 50%;
+        pointer-events: none;
+      }
+      #touch-fire-ring::after {
+        content: '';
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 10px;
+        height: 10px;
+        margin: -5px 0 0 -5px;
+        border-radius: 50%;
+        background: rgba(129, 105, 189, 0.72);
+      }
+
+      #touch-lane { position: absolute; }
+
+      #touch-stick {
+        position: absolute;
+        left: calc(var(--safe-l) + var(--touch-pad));
+        bottom: calc(var(--safe-b) + var(--touch-pad));
+        width: var(--stick-size);
+        height: var(--stick-size);
+        border: 2px solid rgba(120, 142, 173, 0.5);
+        border-radius: 50%;
+        background: radial-gradient(circle at 50% 50%, rgba(41, 52, 67, 0.42), rgba(13, 15, 19, 0.3));
+        pointer-events: auto;
+        touch-action: none;
+      }
+      #touch-stick.held { border-color: rgba(31, 201, 194, 0.72); }
+
+      #touch-knob {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 58px;
+        height: 58px;
+        border: 1px solid var(--gold);
+        border-radius: 50%;
+        background: linear-gradient(180deg, var(--steel-3), var(--steel-2));
+        transform: translate(-50%, -50%);
+        pointer-events: none;
+      }
+
+      #touch-buttons {
+        position: absolute;
+        left: calc(var(--safe-l) + var(--touch-pad) + var(--stick-size) + 12px);
+        bottom: calc(var(--safe-b) + var(--touch-pad));
+        display: flex;
+        /* Reversed, so sprint takes the lower slot and pause the upper one:
+           sprint is used mid-fight and gets the shorter reach, pause is a system
+           control and should be the harder of the two to hit by accident
+           (MASTER_STARTER §12 — action controls closer to play than system
+           controls). */
+        flex-direction: column-reverse;
+        gap: 10px;
+        pointer-events: auto;
+      }
+
+      .touch-btn {
+        appearance: none;
+        width: var(--btn-size);
+        height: var(--btn-size);
+        min-width: var(--touch-min);
+        min-height: var(--touch-min);
+        border: 1px solid var(--gold);
+        border-radius: 4px;
+        background: rgba(23, 32, 40, 0.82);
+        color: var(--silver-hi);
+        font: 700 11px/1 var(--ui-font);
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+      .touch-btn:active { background: rgba(41, 52, 67, 0.92); }
+      #touch-sprint.on {
+        border-color: var(--teal);
+        color: var(--teal);
+      }
+      #touch-pause { font-size: 15px; letter-spacing: 0.06em; }
+
+      /* ---- landscape: aim right, movement left ---- */
+      @media (orientation: landscape) {
+        #touch-aim {
+          left: var(--aim-split);
+          right: 0;
+          top: 0;
+          bottom: 0;
+        }
+        #touch-lane {
+          left: 0;
+          bottom: 0;
+          width: var(--aim-split);
+          height: calc(var(--safe-b) + var(--stick-size) + 2 * var(--touch-pad));
+        }
+      }
+
+      /* ---- portrait: aim across the middle, controls in a bottom lane ---- */
+      @media (orientation: portrait) {
+        #touch-aim {
+          left: 0;
+          right: 0;
+          top: calc(var(--safe-t) + var(--hud-lane));
+          bottom: calc(var(--safe-b) + var(--lane-h));
+        }
+        #touch-lane {
+          left: 0;
+          right: 0;
+          bottom: 0;
+          height: calc(var(--safe-b) + var(--lane-h));
+        }
+      }
+
+      /* ---- HUD relocation under touch ---- */
+
+      /* The integrity bar lived where the stick now lives. In touch mode it
+         moves into the control lane on both axes, which is what keeps every
+         interactive surface disjoint from every HUD panel. */
+      body.touch #integrity {
+        left: calc(var(--safe-l) + var(--touch-pad));
+        width: 168px;
+      }
+      /* The touch layout puts the bar low over the floor, which is the brightest
+         surface in the room while a burst is lighting it. Reviewed in portrait:
+         the label washed out completely against a lit splat, so it gets the same
+         shadow the status line already has (DESIGN.md §5 readability). */
+      body.touch #integrity .label {
+        color: var(--steel-4);
+        text-shadow: 0 1px 4px rgba(0, 0, 0, 0.92);
+      }
+      body.touch #integrity .bar { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
+      @media (orientation: landscape) {
+        body.touch #integrity {
+          bottom: calc(var(--safe-b) + var(--stick-size) + 2 * var(--touch-pad) + 10px);
+        }
+      }
+      @media (orientation: portrait) {
+        body.touch #integrity {
+          width: min(62%, 240px);
+          bottom: calc(var(--safe-b) + var(--lane-h) - 34px);
+        }
+      }
+
+      /* The mouse-capture hint names a mouse and a trackpad; on a phone it is
+         guidance for a device that is not there. The touch control path is
+         explained on the screens instead, before play. */
+      body.touch #capture-hint { display: none !important; }
+
+      /* Control guidance is per input path, and the two are mutually
+         exclusive — a phone must never be shown the keyboard legend as its
+         control path. */
+      .hint-touch { display: none; }
+      body.touch .hint-desktop { display: none; }
+      body.touch .hint-touch { display: block; }
+
+      /* Non-blocking orientation guidance (brief §16.4). It appears only on the
+         menu screens, in portrait, on a touch device — so it can recommend
+         landscape without ever standing between the player and portrait play. */
+      .orientation-note { display: none; }
+      @media (orientation: portrait) {
+        body.touch .orientation-note {
+          display: block;
+          margin-top: 16px;
+          font-size: 11px;
+          letter-spacing: 0.16em;
+          text-transform: uppercase;
+          color: var(--gold);
+        }
+      }
+
+      /* Short landscape has no vertical room for the full lockup or the seven-row
+         results table, and clipping the button that restarts the run is worse
+         than shrinking type. Measured at 844x390 and 740x360: without this the
+         results screen pushed SAME SEED and NEW SEED below the fold, where the
+         only way to reach them was a scroll gesture the play surfaces suppress. */
+      @media (max-height: 460px) and (orientation: landscape) {
+        .overlay { padding: 10px; }
+        .title { margin-bottom: 12px; }
+        .title-main { font-size: clamp(30px, 7vw, 54px); }
+        .title-3d { font-size: clamp(26px, 6.5vw, 48px); }
+        .tagline { margin-top: 8px; }
+        .hint { margin-top: 10px; line-height: 1.6; }
+        .result-title { font-size: clamp(21px, 4vw, 32px); margin-bottom: 2px; }
+        .result-score { font-size: clamp(17px, 2.8vw, 26px); margin-bottom: 6px; }
+        .result-stats { font-size: 11px; line-height: 1.5; margin-bottom: 12px; }
+        .btn {
+          padding: 10px 26px;
+          min-height: 44px;
+          font-size: clamp(12px, 1.6vw, 15px);
+        }
+
+        /* Shrinking type alone was not enough — the seven stat rows still pushed
+           the buttons 6 px past the fold at 844x390. Short landscape has width
+           to spare and no height, so the results screen becomes two columns:
+           outcome and actions on the left, the stat table beside them. */
+        #screen-over > div {
+          display: grid;
+          grid-template-columns: minmax(0, 1fr) auto;
+          grid-template-areas: 't s' 'sc s' 'b s' 'h s';
+          align-content: center;
+          align-items: center;
+          column-gap: 28px;
+        }
+        #over-title { grid-area: t; }
+        #over-score { grid-area: sc; }
+        #over-stats {
+          grid-area: s;
+          margin-bottom: 0;
+          text-align: left;
+        }
+        #screen-over .btn-row { grid-area: b; }
+        #screen-over .hint { grid-area: h; margin-top: 10px; }
+      }
+
+      /* ---------------------------- debug ------------------------------ */
+
+      /* The counters and the generator map are one stacked column. They used to
+         be positioned independently, with the map at a hardcoded `top` chosen
+         to clear the counters — so adding three lines to the counters put them
+         underneath the map. Stacking them means the panel can grow. */
+      #diagnostics {
+        position: absolute;
+        right: 14px;
+        top: 14px;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 10px;
+        pointer-events: none;
+      }
+
+      #debug {
+        min-width: 220px;
+        padding: 10px 12px;
+        background: rgba(13, 15, 19, 0.82);
+        border: 1px solid var(--steel-2);
+        font: 11px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--steel-4);
+        white-space: pre;
+        text-align: left;
+      }
+      #debug[hidden] { display: none; }
+
+      /* Generator debug map (brief 10.9). Same corner as the counters, below
+         them, so the two read as one diagnostics panel. */
+      #debug-map {
+        width: 260px;
+        height: 200px;
+        border: 1px solid var(--steel-2);
+      }
+      #debug-map[hidden] { display: none; }
+
+      /* Keep the diagnostics as one panel without pushing half of it outside
+         the viewport. Landscape has horizontal room, portrait has vertical
+         room below the minimap. Milestone 7 will redesign the play HUD for
+         touch; this only keeps the existing developer surface inspectable. */
+      @media (max-height: 520px) and (orientation: landscape) {
+        #diagnostics {
+          left: 168px;
+          right: 8px;
+          top: 8px;
+          flex-direction: row;
+          align-items: flex-start;
+          justify-content: flex-end;
+          gap: 8px;
+        }
+        #debug {
+          min-width: 0;
+          padding: 6px 8px;
+          font-size: 9px;
+          line-height: 1.35;
+        }
+        #debug-map {
+          width: 200px;
+          height: 154px;
+        }
+      }
+
+      @media (max-width: 600px) and (orientation: portrait) {
+        #diagnostics {
+          top: 139px;
+          right: 8px;
+          gap: 8px;
+        }
+        #debug {
+          min-width: 0;
+          max-width: calc(100vw - 16px);
+          padding: 8px 10px;
+          font-size: 10px;
+          line-height: 1.35;
+        }
+        #debug-map {
+          width: min(260px, calc(100vw - 16px));
+          height: auto;
+          aspect-ratio: 1.3;
+        }
+      }
+
+      /* --------------------------- results ----------------------------- */
+
+      .result-title {
+        font-size: clamp(30px, 6vw, 58px);
+        font-weight: 900;
+        letter-spacing: 0.06em;
+        color: var(--orange);
+        margin-bottom: 10px;
+      }
+      .result-stats {
+        font: 13px/2.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--steel-4);
+        margin-bottom: 28px;
+      }
+      .result-stats b { color: var(--silver-hi); font-weight: 700; }
+      .result-score {
+        font-size: clamp(22px, 3.6vw, 36px);
+        font-weight: 900;
+        letter-spacing: 0.14em;
+        color: var(--teal);
+        margin-bottom: 18px;
+      }
+      .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+      #screen-over.secure .result-title { color: var(--teal); }
+    </style>
+    <script type="module" crossorigin src="./assets/index-CbBEKpYK.js"></script>
+  </head>
+  <body>
+    <div id="app">
+      <canvas id="view"></canvas>
+
+      <!-- HUD -------------------------------------------------------- -->
+      <div id="hud" hidden>
+        <div id="crosshair"></div>
+        <div id="hitmarker"></div>
+        <div id="damage"></div>
+        <div id="minimap">
+          <div class="label">Facility Scan</div>
+          <canvas id="minimap-canvas" role="img" aria-label="Discovered facility minimap"></canvas>
+        </div>
+        <div id="status">
+          <div class="status-main" id="status-main"></div>
+          <div class="status-sub" id="status-sub"></div>
+        </div>
+        <div id="score-pop"></div>
+        <div id="integrity">
+          <div class="label">Suit Integrity</div>
+          <div class="bar"><div class="fill" id="integrity-fill"></div></div>
+        </div>
+        <div id="capture-hint" hidden>
+          Mouse not captured — <b>click</b> to capture, or <b>trackpad click&nbsp;and&nbsp;drag</b> to aim
+        </div>
+        <div id="diagnostics">
+          <div id="debug" hidden></div>
+          <canvas id="debug-map" hidden></canvas>
+        </div>
+      </div>
+
+      <!-- Touch controls (Milestone 7) ------------------------------- -->
+      <!-- Always in the DOM so `input/Touch.ts` binds to it on every device;
+           shown only for a touch-first device and only while gameplay runs. -->
+      <div id="touch" hidden>
+        <div id="touch-aim">
+          <div id="touch-fire-ring" aria-hidden="true"></div>
+        </div>
+        <div id="touch-lane">
+          <div id="touch-stick"><div id="touch-knob"></div></div>
+          <div id="touch-buttons">
+            <button class="touch-btn" id="touch-sprint" type="button"
+                    aria-pressed="false" aria-label="Toggle sprint">Run</button>
+            <button class="touch-btn" id="touch-pause" type="button"
+                    aria-label="Pause">&#10073;&#10073;</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Title ------------------------------------------------------ -->
+      <div class="overlay" id="screen-title">
+        <div>
+          <div class="title">
+            <div class="title-main">
+              <span class="title-clawd">CLAWD</span><span class="title-pop">POP</span>
+            </div>
+            <div class="title-3d">3D</div>
+          </div>
+          <div class="tagline">Containment has failed</div>
+          <div style="margin-top: 30px">
+            <button class="btn" id="btn-start">Start Run</button>
+          </div>
+          <div class="hint hint-desktop">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; mouse look
+            &nbsp;·&nbsp; click fire<br />
+            <kbd>Shift</kbd> sprint &nbsp;·&nbsp; <kbd>Esc</kbd> pause
+            &nbsp;·&nbsp; <kbd>R</kbd> restart &nbsp;·&nbsp; <kbd>M</kbd> mute
+            &nbsp;·&nbsp; <kbd>F3</kbd> debug
+          </div>
+          <div class="hint hint-touch">
+            Left stick moves &nbsp;·&nbsp; drag the right side to aim<br />
+            Tap the right side to fire &nbsp;·&nbsp; <b>Run</b> sprints
+            &nbsp;·&nbsp; <b>&#10073;&#10073;</b> pauses
+          </div>
+          <div class="orientation-note">Landscape plays best — portrait works too</div>
+        </div>
+      </div>
+
+      <!-- Pause ------------------------------------------------------ -->
+      <div class="overlay" id="screen-pause" hidden>
+        <div>
+          <div class="result-title" style="color: var(--steel-4)">PAUSED</div>
+          <div style="margin-top: 24px">
+            <button class="btn" id="btn-resume">Resume</button>
+          </div>
+          <div class="hint hint-desktop">Click anywhere to resume &nbsp;·&nbsp; <kbd>R</kbd> restart</div>
+          <div class="hint hint-touch">Tap anywhere to resume</div>
+          <div class="orientation-note">Landscape plays best — portrait works too</div>
+        </div>
+      </div>
+
+      <!-- Results ---------------------------------------------------- -->
+      <div class="overlay" id="screen-over" hidden>
+        <div>
+          <div class="result-title" id="over-title">CONTAINMENT LOST</div>
+          <div class="result-score" id="over-score"></div>
+          <div class="result-stats" id="over-stats"></div>
+          <div class="btn-row">
+            <button class="btn" id="btn-retry">Same Seed</button>
+            <button class="btn" id="btn-newseed">New Seed</button>
+          </div>
+          <div class="hint hint-desktop">Press <kbd>R</kbd> for a new seed</div>
+          <div class="hint hint-touch">Same Seed replays this laboratory &nbsp;·&nbsp; New Seed builds another</div>
+        </div>
+      </div>
+    </div>
+
+  </body>
+</html>
