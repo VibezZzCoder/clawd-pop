@@ -6,6 +6,11 @@ and restore containment before your suit gives out.
 
 > **Play now:** [Launch Clawd Pop 3D](https://vibezzzcoder.github.io/clawd-pop/)
 
+![Clawd Pop 3D on High quality, with three Clawds advancing through an orange-splattered laboratory](assets/clawd-pop-3d-gameplay.png)
+
+*Desktop gameplay on the High quality preset. The facility, Clawds, cannon,
+lighting, textures, and splat effects are all generated at runtime.*
+
 This is a playable public beta. The complete procedural run is here now; more
 creature variety, laboratory details, audio, and player options are planned
 after mobile control feel is fully settled.
