@@ -445,7 +445,7 @@
          (brief §16.4):
 
            landscape — movement lane on the left of `--aim-split`, drag-to-aim
-                       region to the right of it, full height;
+                       region to the right of it below the top button lane;
            portrait  — aim region across the full width between the HUD lane and
                        the bottom control lane, giving the vertical separation
                        between moving and aiming that a one-handed grip needs.
@@ -529,18 +529,12 @@
       }
 
       #touch-buttons {
-        position: absolute;
-        left: calc(var(--safe-l) + var(--touch-pad) + var(--stick-size) + 12px);
-        bottom: calc(var(--safe-b) + var(--touch-pad));
-        display: flex;
-        /* Reversed, so sprint takes the lower slot and pause the upper one:
-           sprint is used mid-fight and gets the shorter reach, pause is a system
-           control and should be the harder of the two to hit by accident
-           (MASTER_STARTER §12 — action controls closer to play than system
-           controls). */
-        flex-direction: column-reverse;
-        gap: 10px;
-        pointer-events: auto;
+        /* Nested beside the stick for DOM ownership, but positioned against the
+           viewport: in portrait the parent lane begins near the bottom, so an
+           absolute top would still put these buttons beside the stick. */
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
       }
 
       .touch-btn {
@@ -564,14 +558,26 @@
         border-color: var(--teal);
         color: var(--teal);
       }
-      #touch-pause { font-size: 15px; letter-spacing: 0.06em; }
+      #touch-sprint,
+      #touch-pause {
+        position: absolute;
+        top: calc(var(--safe-t) + var(--touch-pad));
+        pointer-events: auto;
+      }
+      #touch-sprint { right: calc(var(--safe-r) + var(--touch-pad)); }
+      #touch-pause {
+        left: 50%;
+        transform: translateX(-50%);
+        font-size: 15px;
+        letter-spacing: 0.06em;
+      }
 
       /* ---- landscape: aim right, movement left ---- */
       @media (orientation: landscape) {
         #touch-aim {
           left: var(--aim-split);
           right: 0;
-          top: 0;
+          top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad));
           bottom: 0;
         }
         #touch-lane {
@@ -619,6 +625,9 @@
       @media (orientation: landscape) {
         body.touch #integrity {
           bottom: calc(var(--safe-b) + var(--stick-size) + 2 * var(--touch-pad) + 10px);
+        }
+        body.touch #status {
+          top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad) + 10px);
         }
       }
       @media (orientation: portrait) {
@@ -808,7 +817,7 @@
       .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
       #screen-over.secure .result-title { color: var(--teal); }
     </style>
-    <script type="module" crossorigin src="./assets/index-CbBEKpYK.js"></script>
+    <script type="module" crossorigin src="./assets/index-U03xfPDG.js"></script>
   </head>
   <body>
     <div id="app">
@@ -851,10 +860,10 @@
         <div id="touch-lane">
           <div id="touch-stick"><div id="touch-knob"></div></div>
           <div id="touch-buttons">
-            <button class="touch-btn" id="touch-sprint" type="button"
-                    aria-pressed="false" aria-label="Toggle sprint">Run</button>
             <button class="touch-btn" id="touch-pause" type="button"
                     aria-label="Pause">&#10073;&#10073;</button>
+            <button class="touch-btn" id="touch-sprint" type="button"
+                    aria-pressed="false" aria-label="Toggle sprint">Run</button>
           </div>
         </div>
       </div>
