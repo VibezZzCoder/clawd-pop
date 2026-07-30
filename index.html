@@ -208,6 +208,173 @@
         font-size: 11px;
       }
 
+      /* --------------------------- settings ---------------------------- */
+
+      /* Options screen (Milestone 8A, brief 16.6). All geometry lives here, not
+         in `ui/SettingsScreen.ts`, for the same reason the touch controls do:
+         both orientations are then one media query instead of a JavaScript
+         layout pass. Every control clears --touch-min so the screen is usable on
+         a phone without a second touch-specific layout. */
+
+      .settings { width: min(560px, 100%); }
+
+      .settings-rows {
+        display: flex;
+        flex-direction: column;
+        gap: 10px;
+        margin: 24px 0 16px;
+        text-align: left;
+      }
+
+      .setting {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) auto;
+        align-items: center;
+        gap: 8px 16px;
+        min-height: var(--touch-min);
+        padding: 8px 14px;
+        border: 1px solid var(--steel-2);
+        background: rgba(23, 32, 40, 0.62);
+      }
+
+      .setting-name {
+        font-size: 12px;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--steel-4);
+      }
+      .setting-name small {
+        display: block;
+        margin-top: 2px;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: none;
+        color: var(--steel-3);
+      }
+
+      .setting-value {
+        font: 11px/1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        color: var(--silver-hi);
+        min-width: 5ch;
+        text-align: right;
+      }
+
+      /* A slider is the one control here that needs its own row: at 44 px of
+         height it would otherwise squeeze the label out of a two-column grid on
+         a narrow phone. */
+      .setting-range {
+        grid-column: 1 / -1;
+        width: 100%;
+        height: var(--touch-min);
+        margin: 0;
+        appearance: none;
+        -webkit-appearance: none;
+        background: transparent;
+        cursor: pointer;
+        /* `pan-y`, not `none` or `manipulation`: a horizontal drag has to reach
+           the slider, while a vertical drag must still scroll the overlay on a
+           short screen. This is inside a menu, where gestures stay native. */
+        touch-action: pan-y;
+      }
+      .setting-range:focus-visible { outline: 2px solid var(--teal); outline-offset: 2px; }
+
+      .setting-range::-webkit-slider-runnable-track {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--steel-2);
+      }
+      .setting-range::-webkit-slider-thumb {
+        appearance: none;
+        -webkit-appearance: none;
+        width: 26px;
+        height: 26px;
+        margin-top: -11px;
+        border: 1px solid var(--gold);
+        border-radius: 50%;
+        background: linear-gradient(180deg, var(--silver-hi), var(--silver-lo));
+      }
+      .setting-range::-moz-range-track {
+        height: 4px;
+        border-radius: 2px;
+        background: var(--steel-2);
+      }
+      .setting-range::-moz-range-thumb {
+        width: 24px;
+        height: 24px;
+        border: 1px solid var(--gold);
+        border-radius: 50%;
+        background: linear-gradient(180deg, var(--silver-hi), var(--silver-lo));
+      }
+
+      /* Teal marks an engaged state. DESIGN.md 2.2: teal is a brand and HUD
+         accent colour only, so it may signal UI state but never touch world
+         geometry, specimens, splats or the projectile. */
+      .setting-toggle,
+      .setting-choice button {
+        appearance: none;
+        min-height: var(--touch-min);
+        min-width: var(--touch-min);
+        padding: 6px 14px;
+        border: 1px solid var(--steel-3);
+        border-radius: 2px;
+        background: var(--steel-1);
+        color: var(--steel-4);
+        font-family: inherit;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      .setting-toggle[aria-pressed='true'],
+      .setting-choice button[aria-checked='true'] {
+        border-color: var(--teal);
+        color: var(--teal);
+        background: rgba(31, 201, 194, 0.12);
+      }
+      .setting-toggle:focus-visible,
+      .setting-choice button:focus-visible {
+        outline: 2px solid var(--teal);
+        outline-offset: 2px;
+      }
+
+      .setting-choice { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+
+      /* Controls that need the full row: a 44 px slider and a four-button group
+         both squeeze the label out of the `auto` column on a 360 px phone. */
+      .setting-stack .setting-choice { grid-column: 1 / -1; justify-content: flex-start; }
+
+      /* Says out loud which parts of a preset a live change cannot reach. A
+         picker that claimed the whole level changed when only the pixel-ratio
+         ceiling did would be the same class of untruth as a false frame-time
+         figure (brief 24.7). */
+      .setting-note {
+        min-height: 1.4em;
+        font-size: 11px;
+        letter-spacing: 0.1em;
+        color: var(--gold);
+      }
+      .setting-note[hidden] { display: none; }
+
+      /* Narrow portrait is its own problem, and not the one short landscape has.
+         Measured at 360x740: the four quality buttons wrapped to a second line at
+         the default padding, making that row 134 px tall and pushing the whole
+         screen 51 px past a fold the play surfaces cannot scroll. Tightening the
+         button padding fits them on one line and recovers ~50 px; the row gaps and
+         vertical padding recover the rest.
+
+         What is deliberately *not* compressed: --touch-min. A 360 px phone is the
+         one most in need of a 44 px target, so the savings come from chrome and
+         never from the size of the thing a thumb has to hit. The sub-labels stay
+         too — they are what explain auto-fire and adaptive quality. */
+      @media (max-width: 400px) and (orientation: portrait) {
+        .settings-rows { gap: 8px; margin: 16px 0 12px; }
+        .setting { padding: 6px 10px; }
+        .setting-choice { gap: 5px; }
+        .setting-choice button { padding: 6px 8px; letter-spacing: 0.1em; }
+      }
+
       /* ----------------------------- HUD ------------------------------- */
 
       #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
@@ -706,6 +873,25 @@
         }
         #screen-over .btn-row { grid-area: b; }
         #screen-over .hint { grid-area: h; margin-top: 10px; }
+
+        /* Six option rows stacked would push Back past the fold at 844x390 for
+           exactly the reason the results table did. Short landscape has width and
+           no height, so the rows become two columns. Touch targets are *not*
+           compressed with the type: --touch-min is a floor, and a landscape
+           phone is still a phone. */
+        .settings { width: min(780px, 100%); }
+        .settings-rows {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-content: start;
+          gap: 6px 10px;
+          margin: 8px 0 6px;
+        }
+        .setting { padding: 4px 10px; gap: 2px 10px; }
+        .setting-name { font-size: 10px; letter-spacing: 0.1em; }
+        .setting-name small { display: none; }
+        .setting-note { font-size: 10px; min-height: 0; }
+        .settings .hint { margin-top: 6px; }
       }
 
       /* ---------------------------- debug ------------------------------ */
@@ -817,7 +1003,7 @@
       .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
       #screen-over.secure .result-title { color: var(--teal); }
     </style>
-    <script type="module" crossorigin src="./assets/index-U03xfPDG.js"></script>
+    <script type="module" crossorigin src="./assets/index-BgVJjYt_.js"></script>
   </head>
   <body>
     <div id="app">
@@ -878,8 +1064,9 @@
             <div class="title-3d">3D</div>
           </div>
           <div class="tagline">Containment has failed</div>
-          <div style="margin-top: 30px">
+          <div class="btn-row" style="margin-top: 30px">
             <button class="btn" id="btn-start">Start Run</button>
+            <button class="btn" id="btn-options">Options</button>
           </div>
           <div class="hint hint-desktop">
             <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; mouse look
@@ -901,12 +1088,73 @@
       <div class="overlay" id="screen-pause" hidden>
         <div>
           <div class="result-title" style="color: var(--steel-4)">PAUSED</div>
-          <div style="margin-top: 24px">
+          <div class="btn-row" style="margin-top: 24px">
             <button class="btn" id="btn-resume">Resume</button>
+            <button class="btn" id="btn-options-pause">Options</button>
           </div>
-          <div class="hint hint-desktop">Click anywhere to resume &nbsp;·&nbsp; <kbd>R</kbd> restart</div>
-          <div class="hint hint-touch">Tap anywhere to resume</div>
+          <div class="hint hint-desktop">Click the backdrop to resume &nbsp;·&nbsp; <kbd>R</kbd> restart</div>
+          <div class="hint hint-touch">Tap the backdrop to resume</div>
           <div class="orientation-note">Landscape plays best — portrait works too</div>
+        </div>
+      </div>
+
+      <!-- Options (Milestone 8A) ------------------------------------- -->
+      <!-- Reached from the title and the pause screen. It replaces the screen it
+           was opened from rather than layering over it, so the pause backdrop's
+           resume-on-click can never sit underneath these controls. -->
+      <div class="overlay" id="screen-settings" hidden>
+        <div class="settings">
+          <div class="result-title" style="color: var(--steel-4)">OPTIONS</div>
+          <div class="settings-rows">
+            <div class="setting setting-stack">
+              <span class="setting-name" id="opt-mouse-label">Mouse sensitivity</span>
+              <output class="setting-value" id="opt-mouse-value"></output>
+              <input class="setting-range" id="opt-mouse" type="range"
+                     aria-labelledby="opt-mouse-label" />
+            </div>
+            <div class="setting setting-stack">
+              <span class="setting-name" id="opt-touch-label">Touch sensitivity
+                <small>Portrait keeps its 2&times; turning rate</small></span>
+              <output class="setting-value" id="opt-touch-value"></output>
+              <input class="setting-range" id="opt-touch" type="range"
+                     aria-labelledby="opt-touch-label" />
+            </div>
+            <div class="setting">
+              <span class="setting-name">Invert vertical aim</span>
+              <button class="setting-toggle" id="opt-invert" type="button"
+                      aria-pressed="false" aria-label="Invert vertical aim">Off</button>
+            </div>
+            <div class="setting">
+              <span class="setting-name">Auto-fire on touch
+                <small>Hold the aim side to keep firing</small></span>
+              <button class="setting-toggle" id="opt-autofire" type="button"
+                      aria-pressed="false" aria-label="Auto-fire on touch">Off</button>
+            </div>
+            <div class="setting setting-stack">
+              <span class="setting-name" id="opt-quality-label">Quality</span>
+              <div class="setting-choice" id="opt-quality" role="radiogroup"
+                   aria-labelledby="opt-quality-label">
+                <button type="button" role="radio" aria-checked="true" data-quality="auto">Auto</button>
+                <button type="button" role="radio" aria-checked="false" data-quality="high">High</button>
+                <button type="button" role="radio" aria-checked="false" data-quality="medium">Medium</button>
+                <button type="button" role="radio" aria-checked="false" data-quality="low">Low</button>
+              </div>
+            </div>
+            <div class="setting">
+              <span class="setting-name">Adaptive quality
+                <small>Lowers resolution if frames stay slow</small></span>
+              <button class="setting-toggle" id="opt-adaptive" type="button"
+                      aria-pressed="true" aria-label="Adaptive quality">On</button>
+            </div>
+          </div>
+          <div class="setting-note" id="opt-note" hidden></div>
+          <div class="btn-row">
+            <button class="btn" id="btn-settings-back">Back</button>
+            <button class="btn" id="btn-settings-reload" hidden>Reload</button>
+          </div>
+          <div class="hint">
+            Options last for this session &nbsp;·&nbsp; nothing here changes what a seed generates
+          </div>
         </div>
       </div>
 
