@@ -259,11 +259,7 @@
         text-align: right;
       }
 
-      /* A slider is the one control here that needs its own row: at 44 px of
-         height it would otherwise squeeze the label out of a two-column grid on
-         a narrow phone. */
       .setting-range {
-        grid-column: 1 / -1;
         width: 100%;
         height: var(--touch-min);
         margin: 0;
@@ -339,6 +335,15 @@
         outline-offset: 2px;
       }
 
+      /* Every slider shares its row with its label: name, value, then the
+         control. 8A gave sliders a row of their own because a full-width one
+         squeezed the label out of the two-column grid on a narrow phone; a
+         *short* slider does not, and Milestone 8D's two volume rows made the
+         single-column screen 850 px tall, which fits nothing. The 44 px height
+         floor is untouched — only the travel is shorter. */
+      .setting-compact { grid-template-columns: minmax(0, 1fr) auto auto; }
+      .setting-compact .setting-range { width: 132px; }
+
       .setting-choice { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 
       /* Controls that need the full row: a 44 px slider and a four-button group
@@ -357,6 +362,23 @@
       }
       .setting-note[hidden] { display: none; }
 
+      /* Eight rows in one column is 850 px, which does not fit a 1280x720
+         desktop window — measured, after Milestone 8D added the two volume
+         rows. Any viewport with the width for two columns gets them, which is
+         the treatment short landscape already gave this screen, for the same
+         measured reason. Below this it stays one column: two 170 px columns on a
+         phone is worse than scrolling, and the play surfaces deliberately cannot
+         scroll. */
+      @media (min-width: 700px) {
+        .settings { width: min(880px, 100%); }
+        .settings-rows {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          align-content: start;
+          gap: 10px 14px;
+        }
+      }
+
       /* Narrow portrait is its own problem, and not the one short landscape has.
          Measured at 360x740: the four quality buttons wrapped to a second line at
          the default padding, making that row 134 px tall and pushing the whole
@@ -369,10 +391,12 @@
          never from the size of the thing a thumb has to hit. The sub-labels stay
          too — they are what explain auto-fire and adaptive quality. */
       @media (max-width: 400px) and (orientation: portrait) {
-        .settings-rows { gap: 8px; margin: 16px 0 12px; }
-        .setting { padding: 6px 10px; }
+        .settings-rows { gap: 6px; margin: 12px 0 10px; }
+        .setting { padding: 4px 10px; }
         .setting-choice { gap: 5px; }
         .setting-choice button { padding: 6px 8px; letter-spacing: 0.1em; }
+        .setting-compact .setting-range { width: 96px; }
+        .settings .hint { margin-top: 10px; }
       }
 
       /* ----------------------------- HUD ------------------------------- */
@@ -892,6 +916,21 @@
         .setting-name small { display: none; }
         .setting-note { font-size: 10px; min-height: 0; }
         .settings .hint { margin-top: 6px; }
+        /* The tallest row in the grid sets the height of its whole line, and
+           the four quality buttons stacked under their label were that row.
+           Beside the label they fit the width short landscape has to spare —
+           which is the trade this breakpoint makes everywhere else too. */
+        .setting-stack .setting-choice { grid-column: auto; justify-content: flex-end; }
+        .setting-compact .setting-range { width: 116px; }
+        /* The generic short-landscape `.result-title` rule is overridden by the
+           base one further down the sheet, so a 50 px heading was eating an
+           eighth of a 390 px screen. Scoped to this screen by id rather than
+           re-ordering the sheet: the results screen fits at 50 px and is what
+           the owner accepted at Milestone 6. */
+        #screen-settings .result-title {
+          font-size: clamp(20px, 3vw, 28px);
+          margin-bottom: 4px;
+        }
       }
 
       /* ---------------------------- debug ------------------------------ */
@@ -1003,7 +1042,7 @@
       .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
       #screen-over.secure .result-title { color: var(--teal); }
     </style>
-    <script type="module" crossorigin src="./assets/index-5tvc7fq4.js"></script>
+    <script type="module" crossorigin src="./assets/index-DSY-dORE.js"></script>
   </head>
   <body>
     <div id="app">
@@ -1106,13 +1145,31 @@
         <div class="settings">
           <div class="result-title" style="color: var(--steel-4)">OPTIONS</div>
           <div class="settings-rows">
-            <div class="setting setting-stack">
+            <!-- Volume (Milestone 8D). Compact rows rather than stacked ones:
+                 two more full-width sliders would push the screen past the fold
+                 on a 360 px phone, which is the exact failure 8A measured with
+                 the quality button group. A volume slider does not need the
+                 travel a sensitivity slider does. -->
+            <div class="setting setting-compact">
+              <span class="setting-name" id="opt-master-label">Master volume</span>
+              <output class="setting-value" id="opt-master-value"></output>
+              <input class="setting-range" id="opt-master" type="range"
+                     aria-labelledby="opt-master-label" />
+            </div>
+            <div class="setting setting-compact">
+              <span class="setting-name" id="opt-effects-label">Effects volume
+                <small>Cannon, specimens, pops and alarms</small></span>
+              <output class="setting-value" id="opt-effects-value"></output>
+              <input class="setting-range" id="opt-effects" type="range"
+                     aria-labelledby="opt-effects-label" />
+            </div>
+            <div class="setting setting-compact">
               <span class="setting-name" id="opt-mouse-label">Mouse sensitivity</span>
               <output class="setting-value" id="opt-mouse-value"></output>
               <input class="setting-range" id="opt-mouse" type="range"
                      aria-labelledby="opt-mouse-label" />
             </div>
-            <div class="setting setting-stack">
+            <div class="setting setting-compact">
               <span class="setting-name" id="opt-touch-label">Touch sensitivity
                 <small>Portrait keeps its 2&times; turning rate</small></span>
               <output class="setting-value" id="opt-touch-value"></output>
