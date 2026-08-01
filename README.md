@@ -9,7 +9,7 @@ and restore containment before your suit gives out.
 ![Clawd Pop 3D on High quality, with three Clawds advancing through an orange-splattered laboratory](media/clawd-pop-3d-gameplay.png)
 
 *Desktop gameplay on the High quality preset. The facility, Clawds, cannon,
-lighting, textures, and splat effects are all generated at runtime.*
+lighting, textures, and splat effects are all procedurally generated at runtime.*
 
 This is a playable public beta. The complete procedural run is here now, along
 with an Options screen for audio level, look sensitivity, inverted aim, touch
