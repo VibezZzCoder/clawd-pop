@@ -692,17 +692,30 @@
 
       #touch-lane { position: absolute; }
 
+      /* A broad nearby landing zone. Clip moving affordances to their own
+         lanes so neither thumb can cover a HUD panel or steal the other hand. */
+      #touch-move {
+        position: absolute;
+        left: var(--safe-l);
+        bottom: var(--safe-b);
+        width: min(calc(100% - var(--safe-l) - var(--safe-r)), 420px);
+        height: var(--move-height, calc(var(--stick-size) + 2 * var(--touch-pad)));
+        pointer-events: auto;
+        touch-action: none;
+        overflow: hidden;
+      }
+      #touch-aim { overflow: hidden; }
+
       #touch-stick {
         position: absolute;
-        left: calc(var(--safe-l) + var(--touch-pad));
-        bottom: calc(var(--safe-b) + var(--touch-pad));
+        left: var(--touch-pad);
+        bottom: var(--touch-pad);
         width: var(--stick-size);
         height: var(--stick-size);
         border: 2px solid rgba(120, 142, 173, 0.5);
         border-radius: 50%;
         background: radial-gradient(circle at 50% 50%, rgba(41, 52, 67, 0.42), rgba(13, 15, 19, 0.3));
-        pointer-events: auto;
-        touch-action: none;
+        pointer-events: none;
       }
       #touch-stick.held { border-color: rgba(31, 201, 194, 0.72); }
 
@@ -772,10 +785,11 @@
           bottom: 0;
         }
         #touch-lane {
+          --move-height: clamp(160px, 28vh, 240px);
           left: 0;
           bottom: 0;
           width: var(--aim-split);
-          height: calc(var(--safe-b) + var(--stick-size) + 2 * var(--touch-pad));
+          height: calc(var(--safe-b) + var(--move-height));
         }
       }
 
@@ -815,7 +829,7 @@
       body.touch #integrity .bar { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
       @media (orientation: landscape) {
         body.touch #integrity {
-          bottom: calc(var(--safe-b) + var(--stick-size) + 2 * var(--touch-pad) + 10px);
+          bottom: calc(var(--safe-b) + clamp(160px, 28vh, 240px) + 10px);
         }
         body.touch #status {
           top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad) + 10px);
@@ -1042,7 +1056,7 @@
       .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
       #screen-over.secure .result-title { color: var(--teal); }
     </style>
-    <script type="module" crossorigin src="./assets/index-BHZOSX9f.js"></script>
+    <script type="module" crossorigin src="./assets/index-BAqXqijh.js"></script>
   </head>
   <body>
     <div id="app">
@@ -1083,7 +1097,7 @@
           <div id="touch-fire-ring" aria-hidden="true"></div>
         </div>
         <div id="touch-lane">
-          <div id="touch-stick"><div id="touch-knob"></div></div>
+          <div id="touch-move"><div id="touch-stick"><div id="touch-knob"></div></div></div>
           <div id="touch-buttons">
             <button class="touch-btn" id="touch-pause" type="button"
                     aria-label="Pause">&#10073;&#10073;</button>
