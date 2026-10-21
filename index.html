@@ -424,6 +424,24 @@
       #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
       #hud[hidden] { display: none; }
 
+      #fps-counter {
+        position: absolute;
+        top: calc(var(--safe-t) + 18px);
+        right: calc(var(--safe-r) + 18px);
+        padding: 5px 8px;
+        border-radius: 3px;
+        background: rgba(14, 22, 30, 0.78);
+        color: var(--silver-hi);
+        font: 600 12px/1.2 var(--ui-font);
+        font-variant-numeric: tabular-nums;
+        min-width: 6ch;
+        text-align: right;
+      }
+      body.touch #fps-counter {
+        top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad));
+        right: calc(var(--safe-r) + var(--touch-pad));
+      }
+
       #crosshair {
         position: absolute;
         left: 50%;
@@ -1077,7 +1095,7 @@
       .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
       #screen-over.secure .result-title { color: var(--teal); }
     </style>
-    <script type="module" crossorigin src="./assets/index-DaM-GeLZ.js"></script>
+    <script type="module" crossorigin src="./assets/index-D7FgOTf3.js"></script>
   </head>
   <body>
     <div id="app">
@@ -1085,6 +1103,7 @@
 
       <!-- HUD -------------------------------------------------------- -->
       <div id="hud" hidden>
+        <div id="fps-counter" hidden>FPS —</div>
         <div id="crosshair"></div>
         <div id="hitmarker"></div>
         <div id="damage"></div>
@@ -1238,6 +1257,11 @@
                 <small>Lowers resolution if frames stay slow</small></span>
               <button class="setting-toggle" id="opt-adaptive" type="button"
                       aria-pressed="true" aria-label="Adaptive quality">On</button>
+            </div>
+            <div class="setting">
+              <span class="setting-name">Frame rate counter</span>
+              <button class="setting-toggle" id="opt-fps" type="button"
+                      aria-pressed="false" aria-label="Frame rate counter">Off</button>
             </div>
           </div>
           <div class="setting-note" id="opt-note" hidden></div>
