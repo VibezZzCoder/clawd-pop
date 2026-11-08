@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
+    <!-- Installed-app shell. `black-translucent` puts the status bar over the
+         game, which is why every touch lane and HUD panel is inset by the
+         safe-area variables below. -->
+    <meta name="theme-color" content="#0d0f13" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Clawd Pop" />
+    <meta name="format-detection" content="telephone=no" />
     <title>Clawd Pop 3D</title>
     <link rel="icon" href="data:," />
     <style>
@@ -49,6 +58,12 @@
            region starts below so it cannot swallow the facility scan. */
         --lane-h: 200px;
         --hud-lane: 132px;
+        /* Portrait: the stick lane's share of the bottom row. The rest is aim
+           surface, so a resting right thumb can never start the stick. */
+        --move-split: 55%;
+        /* The Fire trigger and Dash button, sized for a thumb, not a finger. */
+        --fire-size: 92px;
+        --dash-size: 62px;
       }
 
       * { box-sizing: border-box; }
@@ -91,7 +106,11 @@
         display: grid;
         place-items: center;
         text-align: center;
-        padding: 24px;
+        /* Clear of the notch, the Dynamic Island and the home indicator in
+           every orientation: the menus are read on the same glass the HUD is. */
+        padding:
+          max(24px, var(--safe-t)) max(24px, var(--safe-r))
+          max(24px, var(--safe-b)) max(24px, var(--safe-l));
         background:
           radial-gradient(ellipse at 50% 45%, rgba(41, 52, 67, 0.55), rgba(13, 15, 19, 0.94) 70%),
           var(--steel-0);
@@ -120,7 +139,11 @@
         text-decoration: underline;
         text-underline-offset: 3px;
       }
-      .project-credit a:hover { color: var(--silver-hi); }
+      /* Hover styling only where a pointer really hovers: a touch screen leaves a
+         sticky :hover under the last tap, which lit a Results button nobody pressed. */
+      @media (hover: hover) and (pointer: fine) {
+        .project-credit a:hover { color: var(--silver-hi); }
+      }
       .project-credit a:focus-visible {
         outline: 2px solid var(--teal);
         outline-offset: 4px;
@@ -204,7 +227,9 @@
         touch-action: manipulation;
         transition: background 120ms ease, transform 80ms ease;
       }
-      .btn:hover { background: linear-gradient(180deg, var(--steel-3), var(--steel-2)); }
+      @media (hover: hover) and (pointer: fine) {
+        .btn:hover { background: linear-gradient(180deg, var(--steel-3), var(--steel-2)); }
+      }
       .btn:active { transform: translateY(1px); }
       .btn:focus-visible { outline: 2px solid var(--teal); outline-offset: 3px; }
 
@@ -419,14 +444,30 @@
         .settings .hint { margin-top: 10px; }
       }
 
+      /* Audio stage 2 added a music row. A touch-only device has no mouse to
+         tune, so that row is the one that gives way there. Decided by the
+         pointer media query rather than body.touch, so a tablet with a trackpad
+         (fine pointer, hover) keeps it. */
+      @media (hover: none) and (pointer: coarse) {
+        .setting:has(#opt-mouse) { display: none; }
+      }
+
       /* ----------------------------- HUD ------------------------------- */
 
       #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
       #hud[hidden] { display: none; }
+      /* The desktop HUD is designed at 1280x720 and drawn at that size times
+         --ui-scale (ui/Hud.ts, hudMath.hudScale): at 1080p every instrument is
+         1.5x rather than the same few pixels lost in a bigger frame. `zoom`
+         scales layout, not paint, so every WAAPI transform keeps working and
+         every measured rect is the drawn one. Touch layouts are designed per
+         orientation against fixed control lanes and stay at 1. */
+      body:not(.touch) #hud { zoom: var(--ui-scale, 1); }
 
       #fps-counter {
         position: absolute;
-        top: calc(var(--safe-t) + 18px);
+        /* Below the score cluster (score, award, chain, callout). */
+        top: calc(var(--safe-t) + 170px);
         right: calc(var(--safe-r) + 18px);
         padding: 5px 8px;
         border-radius: 3px;
@@ -441,109 +482,533 @@
         top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad));
         right: calc(var(--safe-r) + var(--touch-pad));
       }
+      @media (max-height: 520px) and (orientation: landscape) {
+        body:not(.touch) #fps-counter { top: calc(var(--safe-t) + 146px); }
+      }
 
+      /* ---------------------------------------------------------------
+         Play HUD (overhaul). Shared ink and shadow so no label can vanish on
+         a lit floor or under a ceiling fixture: every text node carries the
+         same two-layer shadow, and anything that sits over the brightest part
+         of the frame gets a plate. Colour roles:
+           silver/white — the player's own instruments and confirmations
+           cyan         — confirmed hits and kills (never orange: orange is
+                          the specimen and its paint, and a marker drawn in
+                          it disappears on the thing it is confirming)
+           red          — harm to the player only
+           orange/gold  — specimens and the chain at its height
+         --------------------------------------------------------------- */
+      #hud {
+        --hud-ink: #f4f1ea;
+        --hud-shadow: 0 1px 2px rgba(0, 0, 0, 0.95), 0 0 10px rgba(0, 0, 0, 0.6);
+        --hud-plate: rgba(10, 14, 20, 0.74);
+        --hud-hurt: #e8432c;
+        --hud-confirm: #8cefff;
+        --hud-label: #b9cad3;
+      }
+
+      /* Reticle: a centre dot, four ticks that spread on a shot and close as
+         the cannon recharges, and a violet charge ring that fills clockwise.
+         The ring is the cooldown, so rhythm reads at the point of aim. */
       #crosshair {
         position: absolute;
         left: 50%;
         top: 50%;
-        width: 22px;
-        height: 22px;
-        margin: -11px 0 0 -11px;
+        width: 44px;
+        height: 44px;
+        margin: -22px 0 0 -22px;
+        --spread: 0;
       }
-      #crosshair::before,
-      #crosshair::after {
-        content: '';
+      #crosshair .xh-ring {
         position: absolute;
-        background: rgba(232, 230, 221, 0.85);
-        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+        inset: 0;
+        width: 44px;
+        height: 44px;
+        transform: rotate(-90deg);
+        overflow: visible;
       }
-      #crosshair::before { left: 50%; top: 0; width: 2px; height: 100%; margin-left: -1px; }
-      #crosshair::after { top: 50%; left: 0; height: 2px; width: 100%; margin-top: -1px; }
-      #crosshair.cooling::before,
-      #crosshair.cooling::after { background: rgba(129, 105, 189, 0.9); }
+      #crosshair .xh-track {
+        fill: none;
+        stroke: rgba(13, 15, 19, 0.35);
+        stroke-width: 3;
+      }
+      #crosshair .xh-charge {
+        fill: none;
+        stroke: rgba(170, 150, 235, 0.95);
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-dasharray: 94.25;
+        stroke-dashoffset: 94.25;
+        opacity: 0;
+        transition: opacity 120ms ease-out;
+      }
+      #crosshair.cooling .xh-charge { opacity: 1; transition-duration: 0ms; }
+      #crosshair .xh-tick {
+        position: absolute;
+        left: 21px;
+        top: 19px;
+        width: 2px;
+        height: 6px;
+        background: rgba(244, 241, 234, 0.92);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.55);
+        transform-origin: 1px 3px;
+        transform: rotate(var(--a)) translateY(calc(-8px - var(--spread) * 6px));
+      }
+      #crosshair .xh-tick:nth-of-type(1) { --a: 0deg; }
+      #crosshair .xh-tick:nth-of-type(2) { --a: 90deg; }
+      #crosshair .xh-tick:nth-of-type(3) { --a: 180deg; }
+      #crosshair .xh-tick:nth-of-type(4) { --a: 270deg; }
+      #crosshair .xh-dot {
+        position: absolute;
+        left: 20.5px;
+        top: 20.5px;
+        width: 3px;
+        height: 3px;
+        border-radius: 50%;
+        background: var(--hud-ink);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+      }
+      #crosshair.cooling .xh-tick { background: rgba(190, 176, 235, 0.85); }
+      /* Dash arc: 64 degrees across the bottom, filling left to right. The
+         mirrored frame turns the stroke's clockwise start into a left start. */
+      #crosshair .xh-dash-ring {
+        position: absolute;
+        inset: 0;
+        width: 44px;
+        height: 44px;
+        overflow: visible;
+        transform: scaleX(-1) rotate(-90deg);
+        opacity: 0;
+        transition: opacity 220ms ease-out;
+      }
+      #crosshair.dash-cd .xh-dash-ring { opacity: 1; transition-duration: 40ms; }
+      #crosshair .xh-dash-track, #crosshair .xh-dash {
+        fill: none;
+        stroke-width: 3;
+        stroke-linecap: round;
+        stroke-dashoffset: -50.37;
+      }
+      #crosshair .xh-dash-track { stroke: rgba(13, 15, 19, 0.5); stroke-dasharray: 21.78 122.52; }
+      #crosshair .xh-dash { stroke: rgba(79, 224, 217, 0.9); stroke-dasharray: 0 122.52; }
+      #crosshair.dash-full .xh-dash { stroke: #6ff3ec; }
 
-      #hitmarker {
+      /* Hit: four small white ticks, fast. Kill: a large cyan X with a ring
+         that blows outward. Two different shapes, so a Heavy's first two hits
+         can never be mistaken for the third. Animated with the Web Animations
+         API from Hud.ts; these rules are only the resting shapes. */
+      #hitmarker, #killmarker {
         position: absolute;
         left: 50%;
         top: 50%;
-        width: 30px;
-        height: 30px;
-        margin: -15px 0 0 -15px;
+        width: 0;
+        height: 0;
         opacity: 0;
-        transform: rotate(45deg) scale(0.6);
       }
-      #hitmarker::before,
-      #hitmarker::after {
-        content: '';
+      #hitmarker i, #killmarker i {
         position: absolute;
-        background: var(--orange);
+        left: -1px;
+        top: 0;
+        width: 2px;
+        height: 7px;
+        background: #ffffff;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6);
+        transform-origin: 1px 0;
+        transform: rotate(var(--a)) translateY(8px);
       }
-      #hitmarker::before { left: 50%; top: 0; width: 3px; height: 100%; margin-left: -1.5px; }
-      #hitmarker::after { top: 50%; left: 0; height: 3px; width: 100%; margin-top: -1.5px; }
-      #hitmarker.show { animation: hit 220ms ease-out; }
-      @keyframes hit {
-        0%   { opacity: 1; transform: rotate(45deg) scale(0.5); }
-        100% { opacity: 0; transform: rotate(45deg) scale(1.15); }
+      #hitmarker i:nth-child(1), #killmarker i:nth-child(1) { --a: 45deg; }
+      #hitmarker i:nth-child(2), #killmarker i:nth-child(2) { --a: 135deg; }
+      #hitmarker i:nth-child(3), #killmarker i:nth-child(3) { --a: 225deg; }
+      #hitmarker i:nth-child(4), #killmarker i:nth-child(4) { --a: 315deg; }
+      #killmarker i {
+        left: -1.5px;
+        width: 3px;
+        height: 13px;
+        background: var(--hud-confirm);
+        transform-origin: 1.5px 0;
+        transform: rotate(var(--a)) translateY(7px);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.7), 0 0 8px rgba(140, 239, 255, 0.6);
+      }
+      #killmarker .km-ring {
+        position: absolute;
+        left: -17px;
+        top: -17px;
+        width: 34px;
+        height: 34px;
+        border: 2px solid var(--hud-confirm);
+        border-radius: 50%;
+        box-shadow: 0 0 10px rgba(140, 239, 255, 0.45);
       }
 
+      /* Harm. One flash scaled by the size of the hit, one persistent
+         low-integrity vignette that beats like a heart, and a ring of arcs
+         around the reticle pointing at whatever did it. Opacity only, so all
+         three stay on the compositor. */
+      #damage, #vignette-low {
+        position: absolute;
+        inset: 0;
+        opacity: 0;
+        will-change: opacity;
+      }
+      #damage {
+        background: radial-gradient(ellipse at center, transparent 48%, rgba(232, 67, 44, 0.42) 82%, rgba(232, 67, 44, 0.72) 100%);
+      }
+      #vignette-low {
+        background: radial-gradient(ellipse at center, transparent 38%, rgba(150, 14, 8, 0.42) 78%, rgba(70, 0, 0, 0.82) 100%);
+      }
+      #threat-ring {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: min(320px, 74vmin);
+        height: min(320px, 74vmin);
+        transform: translate(-50%, -50%);
+        overflow: visible;
+      }
+      #threat-ring .arc { opacity: 0; }
+      /* A dark outline under every arc and mark (paint-order: the stroke is
+         drawn first, so it reads as an edge) keeps them off an orange body at
+         melee range. Each kind also carries its own mark outside the arc — a
+         second chevron, a dot, an exclamation, a reticle — so the ring reads
+         by shape, not by hue alone (Hud.ts ARC_MARKS). */
+      #threat-ring .arc path {
+        stroke: rgba(8, 10, 14, 0.92);
+        stroke-width: 3;
+        stroke-linejoin: round;
+        paint-order: stroke fill;
+        fill: var(--arc, var(--hud-hurt));
+        fill-rule: evenodd;
+      }
+      #threat-ring .arc .mark:not([d]), #threat-ring .arc .mark[d=''] { display: none; }
+      #threat-ring .arc.hurt { --arc: var(--hud-hurt); }
+      #threat-ring .arc.warn { --arc: #ffa043; }
+      /* Each telegraph has its own colour, mark and (Hud.ts) pulse rate. */
+      #threat-ring .arc.leap { --arc: #ff5a2e; }
+      #threat-ring .arc.fuse { --arc: #ffe24a; }
+      #threat-ring .arc.ranged { --arc: #ff6fa0; }
+      #threat-ring .arc.arrival path {
+        fill: rgba(255, 210, 74, 0.3);
+        stroke: #ffd24a;
+        stroke-width: 2;
+        stroke-dasharray: 6 3;
+      }
+
+      /* Integrity: a ten-segment bar with a number, a white trail for what the
+         last hit took, and a heartbeat pulse below a third. Colour is never
+         the only signal: the number and the pulse carry the state too. */
       #integrity {
         position: absolute;
         left: 28px;
         bottom: 28px;
-        width: 216px;
+        width: 240px;
       }
       #integrity .label {
-        font-size: 10px;
-        letter-spacing: 0.3em;
+        display: flex;
+        align-items: baseline;
+        gap: 8px;
+        font-size: 11px;
+        line-height: 14px;
+        font-weight: 700;
+        letter-spacing: 0.24em;
         text-transform: uppercase;
-        color: var(--steel-3);
-        margin-bottom: 6px;
+        color: var(--hud-label);
+        text-shadow: var(--hud-shadow);
+        margin-bottom: 4px;
+      }
+      #integrity .label > span:first-child { flex: 1; white-space: nowrap; }
+      #integrity-heal {
+        color: var(--teal);
+        font-weight: 800;
+        letter-spacing: 0.06em;
+        opacity: 0;
+      }
+      #integrity-value {
+        font-size: 15px;
+        font-weight: 800;
+        letter-spacing: 0.02em;
+        color: var(--hud-ink);
+        font-variant-numeric: tabular-nums;
       }
       #integrity .bar {
-        height: 10px;
-        border: 1px solid var(--steel-3);
-        background: rgba(13, 15, 19, 0.6);
+        position: relative;
+        height: 12px;
+        border: 1px solid rgba(173, 192, 200, 0.38);
+        background: rgba(13, 15, 19, 0.7);
+        box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5);
+        overflow: hidden;
       }
-      #integrity .fill {
-        height: 100%;
-        width: 100%;
-        background: var(--teal);
-        transition: width 140ms ease-out, background 240ms ease;
-      }
-      #integrity.low .fill { background: #d8452a; }
-
-      #damage {
+      #integrity .fill, #integrity .ghost, #integrity .segments {
         position: absolute;
         inset: 0;
+      }
+      #integrity .fill, #integrity .ghost {
+        transform-origin: left center;
+        will-change: transform;
+      }
+      #integrity .ghost { background: rgba(255, 255, 255, 0.82); }
+      #integrity .fill {
+        background: linear-gradient(180deg, #5fe3dc, var(--teal) 55%, #149a95);
+        transition: background 240ms ease;
+      }
+      #integrity .segments {
+        background: repeating-linear-gradient(90deg,
+          transparent 0, transparent calc(10% - 2px),
+          rgba(13, 15, 19, 0.92) calc(10% - 2px), rgba(13, 15, 19, 0.92) 10%);
+      }
+      #integrity.low .fill { background: linear-gradient(180deg, #ff7a5c, var(--hud-hurt) 55%, #a8291a); }
+      #integrity.low #integrity-value { color: #ff8a70; }
+      #integrity.invuln .fill { animation: iframes 120ms steps(2, jump-none) infinite; }
+      @keyframes iframes { from { opacity: 1; } to { opacity: 0.45; } }
+
+      /* Score: persistent, top-right, rolled up rather than snapped, so every
+         award is seen landing in the total. The chain lives at the reticle,
+         because that is where the player is looking when it matters. */
+      #scoreboard {
+        position: absolute;
+        top: calc(var(--safe-t) + 18px);
+        right: calc(var(--safe-r) + 24px);
+        text-align: right;
+        text-shadow: var(--hud-shadow);
+      }
+      #scoreboard .sb-label {
+        font: 700 11px/1 var(--ui-font);
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: var(--hud-label);
+        margin-bottom: 4px;
+      }
+      #score-value {
+        font: 800 30px/1 var(--ui-font);
+        letter-spacing: 0.02em;
+        font-variant-numeric: tabular-nums;
+        color: var(--hud-ink);
+        transform-origin: right center;
+      }
+      /* Muted (M or the Audio tab): a speaker-slash on the score's label line,
+         for as long as it lasts — a brushed key must never look like a bug. */
+      #scoreboard .sb-label::before {
+        content: none;
+      }
+      #scoreboard.muted .sb-label::before {
+        content: 'Muted';
+        display: inline-block;
+        margin-right: 8px;
+        padding: 2px 5px 2px 17px;
+        border: 1px solid rgba(255, 138, 112, 0.7);
+        border-radius: 2px;
+        background:
+          linear-gradient(135deg, transparent 44%, #ff8a70 44% 56%, transparent 56%) 3px 50% / 10px 10px no-repeat,
+          rgba(13, 15, 19, 0.7);
+        color: #ffb59f;
+        letter-spacing: 0.12em;
+        vertical-align: 1px;
+      }
+
+      /* The chain and everything a kill awards live in one top-right cluster
+         under the score (critics, round 2): the reticle area is reserved for
+         hit confirmation, so nothing is ever drawn over the specimen being
+         shot. The numerals stay cream on a dark plate at every tier — orange
+         on an orange specimen was the trap — and the tier colour rides the
+         window bar and its underline only. */
+      #chain {
+        position: absolute;
+        top: calc(var(--safe-t) + 96px);
+        right: calc(var(--safe-r) + 24px);
+        min-width: 96px;
+        padding: 4px 8px 6px;
+        border-radius: 3px;
+        background: var(--hud-plate);
+        text-align: right;
         opacity: 0;
-        background: radial-gradient(ellipse at center, transparent 45%, rgba(216, 69, 42, 0.5) 100%);
+        transition: opacity 180ms ease-out;
+        --chain-color: var(--teal);
+      }
+      #chain.show { opacity: 1; transition-duration: 60ms; }
+      #chain .chain-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: flex-end;
+        gap: 6px;
+        color: var(--hud-ink);
+        text-shadow: var(--hud-shadow);
+      }
+      #chain-count {
+        font: italic 900 22px/1 var(--ui-font);
+        font-variant-numeric: tabular-nums;
+        display: inline-block;
+        transform-origin: right center;
+      }
+      #chain .chain-label {
+        order: -1;
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--hud-label);
+      }
+      #chain .chain-bar {
+        position: relative;
+        height: 4px;
+        margin: 5px 0 0;
+        background: rgba(13, 15, 19, 0.65);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+      }
+      #chain-fill {
+        height: 100%;
+        background: var(--chain-color);
+        transform-origin: left center;
+        will-change: transform;
+      }
+      /* A close call lengthened this window: the bar wears a gold edge. */
+      #chain.bonus .chain-bar { box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45), 0 0 0 2px rgba(255, 210, 74, 0.55); }
+      #chain.hot { --chain-color: #ffc46b; }
+      #chain.max { --chain-color: var(--orange); }
+      #chain.hot, #chain.max { box-shadow: inset 0 -2px 0 var(--chain-color); }
+      #chain-callout {
+        position: absolute;
+        top: calc(var(--safe-t) + 138px);
+        right: calc(var(--safe-r) + 24px);
+        font: italic 900 18px/1 var(--ui-font);
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        white-space: nowrap;
+        color: #ffe3b8;
+        -webkit-text-stroke: 3px rgba(8, 10, 14, 0.9);
+        paint-order: stroke fill;
+        text-shadow: 0 0 14px rgba(242, 97, 10, 0.5);
+        transform-origin: right center;
+        opacity: 0;
+      }
+
+      /* Boss bar and wave tracker share one persistent top-centre column. The
+         room-name status line above it is the transient part. */
+      #objective {
+        position: absolute;
+        left: 50%;
+        top: calc(12.5% + 76px);
+        transform: translateX(-50%);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 8px;
+      }
+      #boss {
+        width: min(440px, 64vw);
+        opacity: 0;
         transition: opacity 260ms ease-out;
       }
-      #damage.show { opacity: 1; transition-duration: 40ms; }
+      #boss.show { opacity: 1; }
+      #boss[hidden], #wave[hidden] { display: none; }
+      #boss .boss-head {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 4px;
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.26em;
+        text-transform: uppercase;
+        text-shadow: var(--hud-shadow);
+      }
+      #boss-name { color: #ffb28a; }
+      /* The caption rides a plate: "Phase 1" vanished against a ceiling fixture. */
+      #boss .boss-head { padding: 3px 6px 2px; margin: 0 -6px 3px; background: linear-gradient(90deg, rgba(10, 14, 20, 0.66), rgba(10, 14, 20, 0.4)); }
+      #boss-phase { color: var(--hud-label); font-size: 11px; }
+      #boss.enraged #boss-phase { color: #ff7a5f; }
+      #boss .boss-bar {
+        position: relative;
+        height: 9px;
+        border: 1px solid rgba(255, 178, 138, 0.5);
+        background: rgba(13, 15, 19, 0.78);
+        box-shadow: 0 1px 8px rgba(0, 0, 0, 0.55);
+        overflow: hidden;
+      }
+      #boss-ghost, #boss-fill {
+        position: absolute;
+        inset: 0;
+        transform-origin: left center;
+        will-change: transform;
+      }
+      #boss-ghost { background: rgba(255, 255, 255, 0.85); }
+      #boss-fill { background: linear-gradient(180deg, #ffb28a, var(--orange) 50%, #a53c06); }
+      #boss.enraged #boss-fill { background: linear-gradient(180deg, #ff8a70, #e0331f 50%, #8a1b0e); }
+      /* Equipment (the production core) speaks its cells' reactor green, and
+         fails to amber as they go; violet is the player's projectile only. */
+      #boss.equipment #boss-name { color: #a8f08a; }
+      #boss.equipment .boss-bar { border-color: rgba(168, 240, 138, 0.5); }
+      #boss.equipment #boss-fill { background: linear-gradient(180deg, #d4ffc0, #5fd23c 50%, #1f5a17); }
+      #boss.equipment.enraged #boss-fill { background: linear-gradient(180deg, #ffe2a0, #e8a020 50%, #6a4208); }
+      #boss.equipment.enraged #boss-phase { color: #f2c060; }
+      #boss .boss-tick {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        margin-left: -1px;
+        background: rgba(13, 15, 19, 0.95);
+      }
 
-      /* Compact secondary HUD cluster. Unknown rooms stay deliberately hazy;
-         the canvas resolves each section from authoritative room-entry events. */
+      #wave {
+        display: flex;
+        align-items: center;
+        gap: 9px;
+        padding: 5px 11px;
+        border-radius: 3px;
+        background: var(--hud-plate);
+        box-shadow: inset 0 0 0 1px rgba(242, 97, 10, 0.28);
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--hud-ink);
+        white-space: nowrap;
+      }
+      #wave.done { box-shadow: inset 0 0 0 1px rgba(31, 201, 194, 0.4); }
+      #wave-pips { display: flex; align-items: center; gap: 3px; }
+      #wave-pips i {
+        display: block;
+        width: 6px;
+        height: 6px;
+        background: var(--orange);
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.5);
+      }
+      #wave-pips i.s { width: 4px; height: 4px; }
+      #wave-pips i.l { width: 9px; height: 9px; }
+      #wave-pips i.fast { transform: rotate(45deg) scale(0.86); }
+      #wave-pips i.pending { background: transparent; box-shadow: inset 0 0 0 1px rgba(242, 97, 10, 0.75); }
+      #wave-pips em {
+        font-style: normal;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        color: var(--hud-label);
+      }
+      #wave-count { color: var(--orange); font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+
+      /* Compact secondary HUD cluster. A player-centred, heading-up scan:
+         discovered rooms carry their state, unexplored doorways show as
+         ticks, and the next critical door glows gold. */
       #minimap {
         position: absolute;
         left: 20px;
         top: 20px;
         width: 184px;
         padding: 8px;
-        border: 1px solid rgba(120, 142, 173, 0.62);
-        background: linear-gradient(145deg, rgba(13, 15, 19, 0.84), rgba(23, 32, 40, 0.68));
-        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.28);
+        border: 1px solid rgba(176, 138, 94, 0.55);
+        border-radius: 3px;
+        background: linear-gradient(145deg, rgba(13, 15, 19, 0.86), rgba(23, 32, 40, 0.74));
+        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.32);
       }
       #minimap .label {
+        display: flex;
+        justify-content: space-between;
         margin: 0 0 5px 1px;
-        color: var(--steel-3);
-        font: 700 9px/1 var(--ui-font);
-        letter-spacing: 0.24em;
+        color: var(--hud-label);
+        font: 700 11px/1 var(--ui-font);
+        letter-spacing: 0.16em;
         text-transform: uppercase;
       }
+      #scan-sectors { color: var(--teal); letter-spacing: 0.12em; }
       #minimap-canvas {
         display: block;
         width: 166px;
         height: 120px;
+        border-radius: 2px;
       }
       @media (max-width: 600px), (max-height: 520px) {
         #minimap {
@@ -552,16 +1017,16 @@
           width: 140px;
           padding: 6px;
         }
-        #minimap .label { font-size: 8px; }
+        #minimap .label { font-size: 10px; letter-spacing: 0.1em; }
+        #minimap .scan-long { display: none; }
         #minimap-canvas {
           width: 126px;
           height: 88px;
         }
       }
 
-      /* Transient status line. DESIGN.md §6 permits a room/objective line only
-         when it changes — so it announces, then gets out of the way. It sits
-         high and never touches the central playfield. */
+      /* Transient status line, on a soft plate so it never sits naked on a
+         ceiling fixture. It sits high and never touches the central playfield. */
       #status {
         position: absolute;
         left: 50%;
@@ -569,30 +1034,38 @@
         transform: translateX(-50%);
         text-align: center;
         white-space: nowrap;
+        padding: 7px 34px 8px;
+        background: linear-gradient(90deg, transparent, var(--hud-plate) 16%, var(--hud-plate) 84%, transparent);
         opacity: 0;
         transition: opacity 320ms ease-out;
       }
       #status.show { opacity: 1; transition-duration: 110ms; }
+      /* One owner for the top-centre band: while a banner plays the status
+         line is held (Hud queues the latest and shows it when the banner ends),
+         and while a wave is being announced the wave chip would only repeat it. */
+      #hud.bannering #status { opacity: 0; transition-duration: 0ms; }
+      #hud.wave-status #wave { opacity: 0; }
       #status .status-main {
         font-size: clamp(15px, 2.1vw, 22px);
         font-weight: 800;
-        letter-spacing: 0.36em;
-        text-indent: 0.36em;
+        letter-spacing: 0.26em;
+        text-indent: 0.26em;
         text-transform: uppercase;
         color: var(--silver-hi);
-        text-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+        text-shadow: var(--hud-shadow);
       }
       #status .status-sub {
-        margin-top: 7px;
-        font-size: clamp(10px, 1.3vw, 12px);
-        letter-spacing: 0.3em;
-        text-indent: 0.3em;
+        margin-top: 6px;
+        font-size: clamp(11px, 1.3vw, 12px);
+        font-weight: 700;
+        letter-spacing: 0.2em;
+        text-indent: 0.2em;
         text-transform: uppercase;
-        color: var(--teal);
-        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+        color: #7fe9e3;
+        text-shadow: var(--hud-shadow);
       }
-      #status.alert .status-main { color: var(--orange); }
-      #status.secure .status-main { color: var(--teal); }
+      #status.alert .status-main { color: #ff7d36; }
+      #status.secure .status-main { color: #4fe0d9; }
       #status.secure .status-sub { color: var(--steel-4); }
 
       /* In portrait the desktop status line overlapped the facility scan and
@@ -603,64 +1076,265 @@
         #status {
           top: calc(var(--safe-t) + 130px);
           width: calc(100% - 24px);
+          padding: 6px 12px 7px;
+          background: linear-gradient(90deg, transparent, var(--hud-plate) 10%, var(--hud-plate) 90%, transparent);
         }
         #status .status-main {
           font-size: clamp(13px, 4vw, 17px);
-          letter-spacing: 0.22em;
-          text-indent: 0.22em;
+          letter-spacing: 0.2em;
+          text-indent: 0.2em;
         }
         #status .status-sub {
-          font-size: 10px;
+          font-size: 11px;
           line-height: 1.4;
-          letter-spacing: 0.16em;
-          text-indent: 0.16em;
+          letter-spacing: 0.12em;
+          text-indent: 0.12em;
           white-space: normal;
+          /* Two even lines, never one word left alone under a long line. */
+          text-wrap: balance;
         }
+        #objective { top: calc(var(--safe-t) + 196px); }
+        #boss { width: calc(100vw - 40px); }
+      }
+      /* Short landscape: the objective column tucks just under the status
+         line, clear of the reticle's chain meter. */
+      @media (max-height: 520px) and (orientation: landscape) {
+        #objective { top: calc(12.5% + 64px); gap: 5px; }
+        /* Below the Pause button; with the column up, the status line moves
+           beneath it rather than drawing over the boss bar (Hud: objective-up). */
+        body.touch #objective { top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 8px); }
+        body.touch #hud.objective-up #status { top: calc(var(--safe-t) + 136px); }
+        /* Between the scan and the score column: a long objective wraps to a
+           second line rather than running its plate under either. */
+        body.touch #status { max-width: calc(100% - 2 * (var(--safe-l) + 160px)); }
+        body.touch #status .status-main { white-space: normal; text-wrap: balance; line-height: 1.2; }
+        body.touch #status .status-sub { white-space: normal; text-wrap: balance; line-height: 1.35; }
+        body.touch #hud.objective-up #status .status-sub { display: none; }
+        #boss { width: min(360px, 46vw); }
+        #scoreboard { top: calc(var(--safe-t) + 12px); right: calc(var(--safe-r) + 16px); }
+        #score-value { font-size: 22px; }
       }
 
-      /* Transient score notification, offset from the crosshair so it never
-         sits under the reticle the player is tracking with. */
+      /* Transient score award, offset from the crosshair so it never sits
+         under the reticle. White numerals with a hard outline, multiplier in
+         orange; it stays fully opaque for most of its life. */
       #score-pop {
         position: absolute;
-        left: 50%;
-        top: 50%;
-        margin: -66px 0 0 34px;
-        font: 700 clamp(15px, 1.9vw, 21px)/1.2 var(--ui-font);
-        letter-spacing: 0.08em;
-        color: var(--orange);
-        text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+        top: calc(var(--safe-t) + 68px);
+        right: calc(var(--safe-r) + 24px);
+        text-align: right;
+        font: 900 20px/1.2 var(--ui-font);
+        letter-spacing: 0.04em;
+        font-variant-numeric: tabular-nums;
+        color: var(--hud-ink);
+        -webkit-text-stroke: 3px rgba(8, 10, 14, 0.9);
+        paint-order: stroke fill;
+        text-shadow: 0 2px 6px rgba(0, 0, 0, 0.7);
         opacity: 0;
         white-space: nowrap;
+        transform-origin: right top;
       }
       #score-pop .chain {
-        margin-left: 8px;
-        font-size: 0.72em;
-        letter-spacing: 0.14em;
-        color: var(--teal);
+        margin-left: 6px;
+        font-size: 0.74em;
+        color: #ff8a3a;
       }
-      #score-pop.show { animation: scorePop 700ms ease-out; }
-      @keyframes scorePop {
-        0%   { opacity: 0; transform: translateY(8px) scale(0.86); }
-        14%  { opacity: 1; transform: translateY(0) scale(1); }
-        70%  { opacity: 1; transform: translateY(-8px) scale(1); }
-        100% { opacity: 0; transform: translateY(-20px) scale(0.96); }
+      #score-pop .close-call {
+        display: block;
+        margin-bottom: 1px;
+        font: italic 900 0.56em/1 var(--ui-font);
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #ffd24a;
+        -webkit-text-stroke: 2px rgba(8, 10, 14, 0.9);
+      }
+      #score-pop.close { color: #fff2c8; }
+
+      /* Boss banner: a name card with rules either side, in the status line's
+         slot (the status is cleared while it shows) and ending above the boss
+         bar. A dark plate behind it, so it reads over anything for its 2.6 s.
+         Opacity and transform only. */
+      #banner {
+        position: absolute;
+        left: 50%;
+        /* Ends above the objective column (12.5% + 76px), so the boss bar
+           filling underneath the name card is never covered. */
+        top: calc(12.5% - 30px);
+        transform: translateX(-50%);
+        width: min(92vw, 720px);
+        padding: 6px 0 7px;
+        /* A real plate: the card lands over the boss room's white ceiling
+           fixtures, and a text shadow alone washed out against them. */
+        background: linear-gradient(90deg, transparent, rgba(10, 14, 20, 0.84) 14%, rgba(10, 14, 20, 0.84) 86%, transparent);
+        text-align: center;
+        pointer-events: none;
+        opacity: 0;
+        letter-spacing: 0.16em;
+        text-shadow: var(--hud-shadow);
+        --banner-ink: #ffb28a;
+      }
+      #banner[data-tone="phase"] { --banner-ink: #ff7a5f; }
+      #banner[data-tone="machine"] { --banner-ink: #ffc46b; }
+      #banner .banner-kicker {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.36em;
+        text-indent: 0.36em;
+        text-transform: uppercase;
+        color: var(--hud-label);
+      }
+      #banner .banner-kicker::before, #banner .banner-kicker::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, var(--banner-ink));
+      }
+      #banner .banner-kicker::after { background: linear-gradient(270deg, transparent, var(--banner-ink)); }
+      #banner .banner-title {
+        margin-top: 6px;
+        font: italic 900 clamp(22px, 4.2vw, 40px)/1 var(--ui-font);
+        letter-spacing: inherit;
+        text-indent: 0.16em;
+        text-transform: uppercase;
+        color: var(--banner-ink);
+        -webkit-text-stroke: 3px rgba(8, 10, 14, 0.85);
+        paint-order: stroke fill;
+        white-space: nowrap;
+      }
+      #banner .banner-sub {
+        margin-top: 6px;
+        font: 700 12px/1.3 var(--ui-font);
+        letter-spacing: 0.12em;
+        color: var(--hud-ink);
+      }
+      /* While a banner is up it is the announcement: the wave chip under the
+         boss bar steps aside rather than reading through the plate. */
+      #wave { transition: opacity 180ms ease-out; }
+      #hud.bannering #wave { opacity: 0; }
+      /* Portrait: below the scan, ending above the objective column
+         (safe-t + 196px); the title may wrap, so the sub line goes. */
+      @media (max-width: 600px) and (orientation: portrait) {
+        /* Below the facility scan's bottom frame (safe-t + 128), never across it. */
+        #banner { top: calc(var(--safe-t) + 142px); padding: 4px 0 5px; }
+        #banner .banner-title { white-space: normal; margin-top: 4px; font-size: clamp(20px, 6.2vw, 26px); }
+        #banner .banner-sub { display: none; }
+      }
+      /* Short landscape has no room above the column: the card takes the
+         wave chip's place beneath the boss bar, clear of the reticle. */
+      @media (max-height: 520px) and (orientation: landscape) {
+        #banner { top: calc(12.5% + 88px); padding: 4px 0 5px; }
+        /* Between the side insets and clear of the scan, under the boss bar
+           (the wave chip steps aside while a banner plays). */
+        body.touch #banner {
+          top: calc(var(--safe-t) + 104px);
+          width: min(560px, calc(100% - var(--safe-l) - var(--safe-r) - 304px));
+        }
+        body.touch #banner .banner-kicker {
+          display: block;
+          overflow: hidden;
+          font-size: 11px;
+          letter-spacing: 0.14em;
+          text-indent: 0.14em;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        body.touch #banner .banner-title {
+          white-space: normal;
+          line-height: 1.05;
+          font-size: clamp(15px, 2.4vw, 20px);
+        }
+        #banner .banner-title { font-size: clamp(16px, 2.6vw, 22px); margin-top: 4px; }
+        #banner .banner-sub { display: none; }
+      }
+      /* Short desktop window: the cluster tightens under the smaller score. */
+      @media (max-height: 520px) and (orientation: landscape) {
+        body:not(.touch) #score-pop { top: calc(var(--safe-t) + 50px); }
+        body:not(.touch) #chain { top: calc(var(--safe-t) + 76px); }
+        body:not(.touch) #chain-callout { top: calc(var(--safe-t) + 116px); }
       }
 
+      /* Touch: the top-right corner belongs to the run button, so the score
+         sits to its left, level with the top button row. */
+      body.touch #scoreboard {
+        top: calc(var(--safe-t) + var(--touch-pad) + 4px);
+        right: calc(var(--safe-r) + 2 * var(--touch-pad) + var(--btn-size));
+      }
+      body.touch #scoreboard .sb-label { font-size: 11px; letter-spacing: 0.14em; }
+      body.touch #score-value { font-size: 20px; }
+      /* Touch: the award and the chain sit in the right-hand column below the
+         Run button, clear of the centred Pause; with the frame counter up they
+         step down past it (it is the first child of #hud). */
+      body.touch #score-pop {
+        top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 12px);
+        right: calc(var(--safe-r) + var(--touch-pad));
+      }
+      body.touch #chain {
+        top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 38px);
+        right: calc(var(--safe-r) + var(--touch-pad));
+        min-width: 84px;
+      }
+      body.touch #chain-callout {
+        top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 80px);
+        right: calc(var(--safe-r) + var(--touch-pad));
+        font-size: 15px;
+      }
+      body.touch #fps-counter:not([hidden]) ~ #score-pop,
+      body.touch #fps-counter:not([hidden]) ~ #chain,
+      body.touch #fps-counter:not([hidden]) ~ #chain-callout { margin-top: 30px; }
+      /* Portrait's status band starts right under that column: the callout
+         is flavour the ×N already carries, so a phone held upright skips it. */
+      @media (orientation: portrait) {
+        body.touch #chain-callout { display: none; }
+      }
+      /* Narrow portrait: the score must stay clear of the centred Pause. */
+      @media (max-width: 400px) and (orientation: portrait) {
+        body.touch #scoreboard { right: calc(var(--safe-r) + var(--touch-pad) + var(--btn-size) + 8px); }
+        body.touch #score-value { font-size: clamp(15px, 4.2vw, 20px); }
+        body.touch #minimap { width: 124px; }
+        body.touch #minimap-canvas { width: 110px; height: 80px; }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        #integrity.invuln .fill { animation: none; opacity: 0.7; }
+        #status, #chain, #boss { transition: none; }
+      }
+
+      /* Said in full for a few seconds, then collapsed to a small chip in the
+         lower-left corner above the integrity bar (Hud.setCaptureHint), so a
+         trackpad player is not handed a band across the playfield all run. */
       #capture-hint {
         position: absolute;
         left: 50%;
         bottom: 84px;
         transform: translateX(-50%);
-        padding: 9px 18px;
-        white-space: nowrap;
+        max-width: calc(100% - 32px);
+        width: max-content;
+        padding: 8px 16px;
         border: 1px solid var(--gold);
         background: rgba(13, 15, 19, 0.86);
         color: var(--steel-4);
         font-size: 12px;
-        letter-spacing: 0.12em;
+        line-height: 1.45;
+        letter-spacing: 0.08em;
+        text-align: center;
         text-transform: uppercase;
       }
       #capture-hint[hidden] { display: none; }
+      #capture-hint .ch-short { display: none; }
+      #capture-hint.compact {
+        left: 28px;
+        bottom: 84px;
+        transform: none;
+        padding: 4px 9px;
+        border-color: rgba(176, 138, 94, 0.6);
+        background: rgba(13, 15, 19, 0.72);
+        font-size: 11px;
+        letter-spacing: 0.1em;
+      }
+      #capture-hint.compact .ch-long { display: none; }
+      #capture-hint.compact .ch-short { display: inline; }
       #capture-hint b { color: var(--teal); font-weight: 700; }
 
       /* ------------------------ touch controls -------------------------- */
@@ -702,21 +1376,32 @@
         touch-action: none;
       }
 
-      /* The visible fire affordance of brief §16.3, reconciled with the owner's
-         settled tap-anywhere scheme: it sits where the right thumb rests, and
-         it is not a separate hit target — `pointer-events: none`, so a tap on
-         it is just a tap in the region, and nothing can double-activate. */
-      #touch-fire-ring {
+      /* Portrait's lower-right aim strip: the same gesture surface as
+         #touch-aim, so the aim region is an L around the stick lane. Hidden in
+         landscape, where #touch-aim already reaches the bottom edge. */
+      #touch-aim-low {
         position: absolute;
-        right: calc(var(--safe-r) + 22px);
-        bottom: calc(var(--safe-b) + 24px);
+        display: none;
+        pointer-events: auto;
+        touch-action: none;
+      }
+
+      /* Where the aiming thumb landed. Parked invisibly at the frame origin and
+         translated to the touch by `TouchLayer.setAimOrigin`; a visual only. */
+      #touch-aim-ring {
+        position: absolute;
+        left: 0;
+        top: 0;
         width: 62px;
         height: 62px;
         border: 2px solid rgba(232, 230, 221, 0.42);
         border-radius: 50%;
         pointer-events: none;
+        opacity: 0;
+        transition: opacity 140ms ease-out;
       }
-      #touch-fire-ring::after {
+      #touch-aim-ring.show { opacity: 1; transition-duration: 40ms; }
+      #touch-aim-ring::after {
         content: '';
         position: absolute;
         left: 50%;
@@ -726,6 +1411,111 @@
         margin: -5px 0 0 -5px;
         border-radius: 50%;
         background: rgba(129, 105, 189, 0.72);
+      }
+
+      /* ---- right-thumb actions: Fire and Dash ----
+
+         Fire is the cannon in miniature: a gold rim, a silver inner bezel and a
+         black-hole core in the projectile's violet band (DESIGN.md §1.4). It
+         fires on press, repeats while held, and aims while the thumb slides
+         off it. Dash sits on the thumb's natural arc beside it. Both are real
+         hit targets layered above the aim surfaces. */
+      #touch-actions {
+        position: absolute;
+        inset: 0;
+        pointer-events: none;
+      }
+      .touch-act {
+        appearance: none;
+        position: absolute;
+        padding: 0;
+        border-radius: 50%;
+        pointer-events: auto;
+        touch-action: none;
+        -webkit-tap-highlight-color: transparent;
+        transition: transform 70ms ease-out, box-shadow 120ms ease-out,
+          border-color 120ms ease-out, background-color 120ms ease-out;
+      }
+      #touch-fire {
+        width: var(--fire-size);
+        height: var(--fire-size);
+        border: 3px solid rgba(176, 138, 94, 0.9);
+        /* An opaque dark disc and a dark outer stroke: the trigger sits over the
+           cannon's own gold and white in landscape, and a translucent one lost
+           its rim against them. */
+        background: radial-gradient(circle at 50% 38%, rgba(33, 42, 54, 0.92), rgba(13, 15, 19, 0.88) 70%);
+        box-shadow:
+          inset 0 0 0 3px rgba(232, 230, 221, 0.28),
+          0 0 0 2px rgba(8, 10, 14, 0.8),
+          0 3px 14px rgba(0, 0, 0, 0.45);
+      }
+      #touch-fire .fire-core {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        width: 44%;
+        height: 44%;
+        border-radius: 50%;
+        transform: translate(-50%, -50%);
+        background: radial-gradient(circle, #050409 0 46%, rgba(129, 105, 189, 0.95) 54%,
+          rgba(129, 105, 189, 0.35) 66%, rgba(129, 105, 189, 0) 72%);
+        transition: transform 90ms ease-out, filter 120ms ease-out;
+      }
+      #touch-fire.held {
+        transform: scale(0.93);
+        border-color: var(--gold-hi);
+        box-shadow:
+          inset 0 0 0 3px rgba(232, 230, 221, 0.5),
+          0 0 22px rgba(129, 105, 189, 0.55),
+          0 2px 10px rgba(0, 0, 0, 0.45);
+      }
+      #touch-fire.held .fire-core {
+        transform: translate(-50%, -50%) scale(1.22);
+        filter: brightness(1.35);
+      }
+
+      #touch-dash {
+        width: var(--dash-size);
+        height: var(--dash-size);
+        border: 1px solid var(--gold);
+        background: rgba(17, 24, 31, 0.9);
+        color: var(--teal);
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 1px;
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.1em;
+        text-indent: 0.1em;
+        text-transform: uppercase;
+        box-shadow: 0 0 0 2px rgba(8, 10, 14, 0.75), 0 2px 10px rgba(0, 0, 0, 0.4);
+      }
+      #touch-dash svg {
+        width: 22px;
+        height: 22px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2.6;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+      /* Recharge: a shade over the button that drains away as the dash refills. */
+      #touch-dash { overflow: hidden; --dash-cd: 0; }
+      #touch-dash::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: rgba(8, 10, 14, 0.62);
+        transform-origin: center bottom;
+        transform: scaleY(var(--dash-cd));
+        pointer-events: none;
+      }
+      #touch-dash.held {
+        transform: scale(0.92);
+        border-color: var(--teal);
+        background: rgba(31, 201, 194, 0.2);
+        color: var(--silver-hi);
       }
 
       #touch-lane { position: absolute; }
@@ -740,9 +1530,13 @@
         height: var(--move-height, calc(var(--stick-size) + 2 * var(--touch-pad)));
         pointer-events: auto;
         touch-action: none;
-        overflow: hidden;
+        /* The hit area stays this rectangle; the stick and its push-to-run ring
+           are visuals with no hit-testing, and clipping them cut the RUN cue
+           flat at the lane edge exactly when it engaged. */
+        overflow: visible;
       }
       #touch-aim { overflow: hidden; }
+      body.touch.stick-sprinting #integrity { opacity: 0.35; transition: opacity 120ms ease-out; }
 
       #touch-stick {
         position: absolute;
@@ -756,6 +1550,44 @@
         pointer-events: none;
       }
       #touch-stick.held { border-color: rgba(31, 201, 194, 0.72); }
+
+      /* Push-to-run. While the stick is held a faint ring marks the overtravel
+         the thumb must cross to run (`TOUCH.sprintOvertravel`, written onto the
+         element by TouchLayer); crossing it lights the ring and the knob. */
+      #touch-stick::before {
+        content: '';
+        position: absolute;
+        inset: calc(-1 * var(--sprint-overtravel, 20px));
+        border: 1px dashed rgba(31, 201, 194, 0);
+        border-radius: 50%;
+        pointer-events: none;
+        transition: border-color 140ms ease-out, box-shadow 140ms ease-out;
+      }
+      #touch-stick.held::before { border-color: rgba(31, 201, 194, 0.3); }
+      #touch-stick.sprinting { border-color: var(--teal); }
+      #touch-stick.sprinting::before {
+        border: 2px solid rgba(31, 201, 194, 0.85);
+        box-shadow: 0 0 16px rgba(31, 201, 194, 0.4), inset 0 0 12px rgba(31, 201, 194, 0.25);
+      }
+      #touch-knob::after {
+        content: 'Run';
+        position: absolute;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        font: 800 11px/1 var(--ui-font);
+        letter-spacing: 0.16em;
+        text-indent: 0.16em;
+        text-transform: uppercase;
+        color: var(--steel-0);
+        opacity: 0;
+        transition: opacity 100ms ease-out;
+      }
+      #touch-stick.sprinting #touch-knob {
+        border-color: var(--silver-hi);
+        background: linear-gradient(180deg, #4fe0d9, var(--teal));
+      }
+      #touch-stick.sprinting #touch-knob::after { opacity: 1; }
 
       #touch-knob {
         position: absolute;
@@ -800,6 +1632,14 @@
         border-color: var(--teal);
         color: var(--teal);
       }
+      /* Running from the stick: the button lights with it, dashed, so the two
+         RUN labels never disagree — but it is not latched on. */
+      #touch-sprint.linked:not(.on) {
+        border-style: dashed;
+        border-color: rgba(31, 201, 194, 0.8);
+        color: var(--teal);
+        background: rgba(31, 201, 194, 0.12);
+      }
       #touch-sprint,
       #touch-pause {
         position: absolute;
@@ -822,12 +1662,25 @@
           top: calc(var(--safe-t) + var(--btn-size) + 2 * var(--touch-pad));
           bottom: 0;
         }
+        /* The stick's landing surface runs right up to the aim split, so no
+           dead column is left between the two thumbs' surfaces. */
+        #touch-move { width: calc(100% - var(--safe-l)); }
         #touch-lane {
           --move-height: clamp(160px, 28vh, 240px);
           left: 0;
           bottom: 0;
           width: var(--aim-split);
           height: calc(var(--safe-b) + var(--move-height));
+        }
+        /* Fire at the right thumb's rest; Dash one step along its arc toward
+           the centre, low enough to reach without leaving the trigger zone. */
+        #touch-fire {
+          right: calc(var(--safe-r) + 34px);
+          bottom: calc(var(--safe-b) + 38px);
+        }
+        #touch-dash {
+          right: calc(var(--safe-r) + 34px + var(--fire-size) + 18px);
+          bottom: calc(var(--safe-b) + 18px);
         }
       }
 
@@ -844,6 +1697,29 @@
           right: 0;
           bottom: 0;
           height: calc(var(--safe-b) + var(--lane-h));
+        }
+        /* The stick owns only the left of the bottom row. Before this it was
+           the whole 420 px row, so the natural right-thumb rest started the
+           stick; and the 40 px above it belonged to nothing at all. */
+        #touch-move { width: calc(var(--move-split) - var(--safe-l)); }
+        #touch-aim-low {
+          display: block;
+          left: var(--move-split);
+          right: 0;
+          bottom: var(--safe-b);
+          height: var(--lane-h);
+        }
+        #touch-fire {
+          --fire-size: 88px;
+          right: calc(var(--safe-r) + 24px);
+          bottom: calc(var(--safe-b) + 40px);
+        }
+        /* Up and inward along the thumb's arc: stacked above the trigger
+           rather than beside it, because beside it on a 360 px phone would
+           reach into the stick lane. */
+        #touch-dash {
+          right: calc(var(--safe-r) + 96px);
+          bottom: calc(var(--safe-b) + 136px);
         }
       }
 
@@ -865,6 +1741,97 @@
         text-shadow: 0 1px 4px rgba(0, 0, 0, 0.92);
       }
       body.touch #integrity .bar { box-shadow: 0 1px 6px rgba(0, 0, 0, 0.5); }
+
+      /* The facility scan clears the notch / Dynamic Island in both
+         orientations. Only the inset is touch-owned; size and look belong to
+         the HUD rules above. */
+      body.touch #minimap {
+        left: calc(var(--safe-l) + 12px);
+        top: calc(var(--safe-t) + 12px);
+      }
+
+      /* Small-screen HUD legibility (2026-11). Phone glass is read at arm's
+         length over the brightest part of the room — the ceiling fixtures in
+         portrait, a lit splat under the integrity bar — so on touch no HUD text
+         drops below 11 px, tracking comes down to where letters stay words,
+         and every text block gets its own dark backing instead of relying on a
+         text shadow. Only type and backing change; every rect the layout
+         contract measures keeps its position. */
+      body.touch #status {
+        padding: 6px 22px 7px;
+        background: linear-gradient(90deg, transparent,
+          rgba(13, 15, 19, 0.72) 16%, rgba(13, 15, 19, 0.72) 84%, transparent);
+      }
+      /* The integrity block floats over scenery in landscape. A pseudo-element
+         backdrop, so the measured rect of the panel itself does not move. */
+      body.touch #integrity::before {
+        content: '';
+        position: absolute;
+        inset: -7px -10px -7px -10px;
+        z-index: -1;
+        background: linear-gradient(90deg, rgba(13, 15, 19, 0.6),
+          rgba(13, 15, 19, 0.42) 78%, transparent);
+      }
+      body.touch #status .status-sub {
+        margin-top: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        text-indent: 0.14em;
+      }
+      body.touch #minimap .label { font-size: 11px; letter-spacing: 0.08em; }
+      body.touch #minimap .scan-long { display: none; }
+      body.touch #integrity .label {
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.18em;
+        margin-bottom: 5px;
+      }
+      body.touch #integrity .bar {
+        position: relative;
+        height: 12px;
+        background: rgba(13, 15, 19, 0.78);
+      }
+      /* Ten segments, so a glance reads "how many hits" rather than "how long
+         a line". A pseudo-element over the fill, so it costs no markup. */
+      body.touch #integrity .bar::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: repeating-linear-gradient(90deg,
+          transparent 0 calc(10% - 2px), rgba(13, 15, 19, 0.9) calc(10% - 2px) 10%);
+      }
+      body.touch #integrity .fill { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28); }
+      /* Low integrity: a red rim and a breathing glow. The glow is a fixed
+         box-shadow on its own pseudo-element and only its *opacity* animates,
+         so the pulse is a compositor job — animating box-shadow itself would
+         repaint the HUD layer over the WebGL canvas every frame on an iPhone
+         for as long as the player is in trouble. */
+      body.touch #integrity .bar::before {
+        content: '';
+        position: absolute;
+        inset: -1px;
+        box-shadow: 0 0 14px rgba(216, 69, 42, 0.75);
+        opacity: 0;
+        pointer-events: none;
+      }
+      body.touch #integrity.low .bar { border-color: #ff7a5a; }
+      body.touch #integrity.low .bar::before {
+        animation: touchIntegrityLow 0.45s ease-in-out infinite alternate;
+      }
+      @keyframes touchIntegrityLow {
+        from { opacity: 0.12; }
+        to { opacity: 1; }
+      }
+      body.touch #score-pop { font-size: 17px; }
+      @media (prefers-reduced-motion: reduce) {
+        body.touch #integrity.low .bar::before { animation: none; opacity: 0.7; }
+      }
+
+      /* Options screen on touch: the haptics row replaces the mouse row, which
+         names hardware a phone does not have. */
+      #opt-haptics-row[hidden] { display: none; }
+      body.touch .setting:has(#opt-mouse) { display: none; }
       @media (orientation: landscape) {
         body.touch #integrity {
           bottom: calc(var(--safe-b) + clamp(160px, 28vh, 240px) + 10px);
@@ -875,9 +1842,130 @@
       }
       @media (orientation: portrait) {
         body.touch #integrity {
-          width: min(62%, 240px);
+          /* Inside the stick's column, so it never sits over the aim strip. */
+          width: min(calc(var(--move-split) - var(--safe-l) - 2 * var(--touch-pad)), 240px);
           bottom: calc(var(--safe-b) + var(--lane-h) - 34px);
         }
+      }
+
+      /* Very short touch landscape (ordinary Safari with its tab bar leaves an
+         iPhone about 780x250 CSS px; measured in the iOS Simulator). At this
+         height the 844x390 stack does not fit: the scan covered the integrity
+         bar and the stick ring ran into the scan. Everything is re-stacked for
+         the two thumbs and one centre slot:
+         - the stick shrinks (112 px, still a thumb pad) and its lane with it;
+         - the scan shrinks to a compact box in the top-left corner, and the
+           integrity bar moves beside it in the top band, short-labelled;
+         - the centre slot between Pause and the reticle has one owner at a
+           time: a banner over a status line over the objective column;
+         - the score award and chain meter sit in the top band beside the
+           score, because the right column under Run is the Fire trigger's. */
+      @media (max-height: 300px) and (orientation: landscape) {
+        /* --stick-travel is re-stated: a custom property computed on :root does
+           not follow a later --stick-size override, so the knob would travel
+           the 132 px stick's 66 px. */
+        body.touch { --stick-size: 112px; --stick-travel: 56px; }
+        body.touch #touch-lane { --move-height: 126px; }
+        body.touch #touch-knob { width: 50px; height: 50px; }
+        body.touch #minimap {
+          left: calc(var(--safe-l) + 10px);
+          top: calc(var(--safe-t) + 6px);
+          width: 100px;
+          padding: 5px;
+        }
+        body.touch #minimap .label { margin-bottom: 4px; }
+        body.touch #minimap-canvas { width: 88px; height: 62px; }
+        body.touch #integrity {
+          left: calc(var(--safe-l) + 118px);
+          top: calc(var(--safe-t) + 8px);
+          bottom: auto;
+          /* Up to the Pause button's column, never under it. */
+          width: min(168px, calc(50% - 27px - 10px - var(--safe-l) - 118px));
+        }
+        body.touch #integrity .int-long { display: none; }
+        body.touch #integrity .label { letter-spacing: 0.08em; margin-bottom: 4px; }
+        body.touch #integrity .label > span:first-child { overflow: hidden; min-width: 0; }
+        body.touch #integrity-value { font-size: 13px; }
+        body.touch #status,
+        body.touch #hud.objective-up #status {
+          top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 1px);
+          width: auto;
+          max-width: calc(100% - 2 * (var(--safe-l) + 112px));
+          padding: 2px 14px;
+        }
+        body.touch #status .status-main {
+          font-size: 13px;
+          line-height: 15px;
+          letter-spacing: 0.16em;
+          text-indent: 0.16em;
+          overflow: hidden;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        body.touch #status .status-sub,
+        body.touch #hud.objective-up #status .status-sub {
+          display: block;
+          margin-top: 1px;
+          overflow: hidden;
+          font-size: 11px;
+          line-height: 13px;
+          letter-spacing: 0.02em;
+          text-indent: 0;
+          text-transform: none;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        body.touch #objective { top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 3px); gap: 3px; }
+        body.touch #objective { transition: opacity 160ms ease-out; }
+        body.touch #status.show ~ #objective,
+        body.touch #hud.bannering #objective { opacity: 0; }
+        body.touch #boss { width: min(300px, calc(100% - 2 * (var(--safe-l) + 112px))); }
+        body.touch #banner {
+          top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 1px);
+          width: min(420px, calc(100% - 2 * (var(--safe-l) + 112px)));
+          padding: 2px 0;
+          margin-top: 3px;
+        }
+        /* One line: the title alone ("Destabilising"); the boss bar beneath
+           already names the boss and its phase. */
+        body.touch #banner .banner-kicker { display: none; }
+        body.touch #banner .banner-title {
+          margin-top: 0;
+          overflow: hidden;
+          font-size: 15px;
+          line-height: 18px;
+          white-space: nowrap;
+          text-overflow: ellipsis;
+        }
+        /* The trigger drops toward the thumb's rest to open the right column. */
+        body.touch #touch-fire { bottom: calc(var(--safe-b) + 22px); }
+        /* No room for flavour: the score rolls up in place, the chain meter
+           carries the ×N, and the callout is the same news a third time. */
+        body.touch #score-pop,
+        body.touch #chain-callout { display: none; }
+        body.touch #chain {
+          top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 2px);
+          right: calc(var(--safe-r) + var(--touch-pad));
+          min-width: 0;
+          padding: 2px 6px 3px;
+        }
+        body.touch #chain .chain-label { display: none; }
+        body.touch .coach-chip { font-size: 11px; padding: 4px 10px 4px 8px; }
+
+      }
+
+      /* Portrait: the award and the chain meter tuck up under Run so the meter
+         ends above the status line (safe-t + 130) instead of printing over the
+         end of a wave announcement; the meter's ×N says "chain" by itself. */
+      @media (orientation: portrait) {
+        body.touch #score-pop { top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 4px); }
+        body.touch #chain {
+          top: calc(var(--safe-t) + var(--btn-size) + var(--touch-pad) + 28px);
+          min-width: 0;
+          padding: 2px 6px 3px;
+        }
+        body.touch #chain .chain-label { display: none; }
+        body.touch #chain-count { font-size: 20px; }
       }
 
       /* The mouse-capture hint names a mouse and a trackpad; on a phone it is
@@ -891,6 +1979,15 @@
       .hint-touch { display: none; }
       body.touch .hint-desktop { display: none; }
       body.touch .hint-touch { display: block; }
+      /* Before the game has decided (TouchLayer sets .input-known), the same
+         pointer query the device probe reads (shared/device.ts) picks the
+         legend, so a phone's first paint already shows the touch hints rather
+         than WASD for however long the boot takes. After that, body.touch alone
+         decides — which is what lets ?touch=0 and ?touch=1 override it. */
+      @media (pointer: coarse) {
+        body:not(.input-known) .hint-desktop { display: none; }
+        body:not(.input-known) .hint-touch { display: block; }
+      }
 
       /* Non-blocking orientation guidance (brief §16.4). It appears only on the
          menu screens, in portrait, on a touch device — so it can recommend
@@ -904,52 +2001,32 @@
           letter-spacing: 0.16em;
           text-transform: uppercase;
           color: var(--gold);
+          /* Two even lines rather than a lone "too" over the attract scene. */
+          text-wrap: balance;
         }
       }
 
-      /* Short landscape has no vertical room for the full lockup or the seven-row
-         results table, and clipping the button that restarts the run is worse
-         than shrinking type. Measured at 844x390 and 740x360: without this the
-         results screen pushed SAME SEED and NEW SEED below the fold, where the
-         only way to reach them was a scroll gesture the play surfaces suppress. */
+      /* Short landscape has no vertical room for the full lockup, and clipping
+         the button that starts or restarts the run is worse than shrinking type.
+         Measured at 844x390 and 740x360. The results card and the menu headings
+         have their own short-landscape rules in the Menus block below. */
       @media (max-height: 460px) and (orientation: landscape) {
-        .overlay { padding: 10px; }
+        .overlay {
+          padding:
+            max(10px, var(--safe-t)) max(10px, var(--safe-r))
+            max(10px, var(--safe-b)) max(10px, var(--safe-l));
+        }
         .title { margin-bottom: 12px; }
         .project-credit { margin-top: 2px; }
         .title-main { font-size: clamp(30px, 7vw, 54px); }
         .title-3d { font-size: clamp(26px, 6.5vw, 48px); }
         .tagline { margin-top: 8px; }
         .hint { margin-top: 10px; line-height: 1.6; }
-        .result-title { font-size: clamp(21px, 4vw, 32px); margin-bottom: 2px; }
-        .result-score { font-size: clamp(17px, 2.8vw, 26px); margin-bottom: 6px; }
-        .result-stats { font-size: 11px; line-height: 1.5; margin-bottom: 12px; }
         .btn {
           padding: 10px 26px;
           min-height: 44px;
           font-size: clamp(12px, 1.6vw, 15px);
         }
-
-        /* Shrinking type alone was not enough — the seven stat rows still pushed
-           the buttons 6 px past the fold at 844x390. Short landscape has width
-           to spare and no height, so the results screen becomes two columns:
-           outcome and actions on the left, the stat table beside them. */
-        #screen-over > div {
-          display: grid;
-          grid-template-columns: minmax(0, 1fr) auto;
-          grid-template-areas: 't s' 'sc s' 'b s' 'h s';
-          align-content: center;
-          align-items: center;
-          column-gap: 28px;
-        }
-        #over-title { grid-area: t; }
-        #over-score { grid-area: sc; }
-        #over-stats {
-          grid-area: s;
-          margin-bottom: 0;
-          text-align: left;
-        }
-        #screen-over .btn-row { grid-area: b; }
-        #screen-over .hint { grid-area: h; margin-top: 10px; }
 
         /* Six option rows stacked would push Back past the fold at 844x390 for
            exactly the reason the results table did. Short landscape has width and
@@ -975,15 +2052,6 @@
            which is the trade this breakpoint makes everywhere else too. */
         .setting-stack .setting-choice { grid-column: auto; justify-content: flex-end; }
         .setting-compact .setting-range { width: 116px; }
-        /* The generic short-landscape `.result-title` rule is overridden by the
-           base one further down the sheet, so a 50 px heading was eating an
-           eighth of a 390 px screen. Scoped to this screen by id rather than
-           re-ordering the sheet: the results screen fits at 50 px and is what
-           the owner accepted at Milestone 6. */
-        #screen-settings .result-title {
-          font-size: clamp(20px, 3vw, 28px);
-          margin-bottom: 4px;
-        }
       }
 
       /* ---------------------------- debug ------------------------------ */
@@ -996,6 +2064,10 @@
         position: absolute;
         right: 14px;
         top: 14px;
+        /* A developer instrument, not part of the scaled HUD: it undoes the
+           desktop --ui-scale so its text and generator map stay at native
+           resolution instead of being upscaled and blurred. */
+        zoom: calc(1 / var(--ui-scale, 1));
         display: flex;
         flex-direction: column;
         align-items: flex-end;
@@ -1070,58 +2142,1837 @@
         }
       }
 
-      /* --------------------------- results ----------------------------- */
+      /* =================================================================
+         Menus (overhaul, UI stage 2). Title, pause, options and results share
+         one panel language: a dark card with a brass hairline, silver type and
+         one primary action edged in orange. Pause and results are
+         `overlay-live` — the frozen frame stays visible behind a vignette, so
+         the player keeps the room they paused in and the paint they left. No
+         backdrop blur: it is a full-screen filter pass on a phone GPU.
+         Motion is opacity plus a short drop from above, never a scale or a
+         downward shift on anything a thumb has to hit, so a control is never
+         measured or tapped smaller or lower than it settles.
+         ================================================================= */
+      :root {
+        /* Secondary text on the menu steel: ~6:1, where --steel-3 was ~3:1. */
+        --ink-dim: #93a6b8;
+        --ink-faint: #7f93a8;
+        --grade-s: #ffd27a;
+        --grade-a: #8cefff;
+        --grade-b: #e8e6dd;
+        --grade-c: #adc0c8;
+        --grade-d: #ff8a5c;
+      }
+
+      .tagline, .hint { color: var(--ink-dim); }
+      .hint kbd { border-color: #61758c; color: var(--silver-hi); }
+      .setting-name small { color: var(--ink-faint); }
+
+      .overlay.overlay-live {
+        background:
+          radial-gradient(ellipse 85% 75% at 50% 50%,
+            rgba(8, 11, 15, 0.34) 0%, rgba(8, 11, 15, 0.7) 68%, rgba(5, 7, 10, 0.9) 100%);
+      }
+
+      .menu-panel { position: relative; }
+      .overlay-live .menu-panel {
+        background: linear-gradient(180deg, rgba(17, 22, 29, 0.88), rgba(10, 13, 18, 0.86));
+        border: 1px solid rgba(173, 192, 200, 0.14);
+        border-radius: 4px;
+        box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.35), 0 24px 60px rgba(0, 0, 0, 0.55);
+        padding: 26px 30px 22px;
+      }
+      .overlay-live .menu-panel::before {
+        content: '';
+        position: absolute;
+        left: 24px;
+        right: 24px;
+        top: -1px;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--gold) 18%, var(--gold-hi) 50%, var(--gold) 82%, transparent);
+        opacity: 0.85;
+      }
+      /* A title over a live canvas keeps a soft plate, not a card. */
+      .overlay-live .title-panel {
+        background: radial-gradient(ellipse at 50% 45%, rgba(8, 11, 15, 0.62), rgba(8, 11, 15, 0) 72%);
+        border: 0;
+        box-shadow: none;
+      }
+      .overlay-live .title-panel::before { display: none; }
+      #screen-title.overlay-live .title-panel::before { display: block; }
+
+      /* ------------------------- motion ---------------------------------- */
+
+      @keyframes menu-fade { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes menu-drop {
+        from { opacity: 0; transform: translateY(-8px); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes menu-stamp {
+        0% { opacity: 0; transform: scale(1.7) rotate(var(--rot, 0deg)); }
+        60% { opacity: 1; }
+        100% { opacity: 1; transform: scale(1) rotate(var(--rot, 0deg)); }
+      }
+      @keyframes menu-armed {
+        from { box-shadow: 0 0 0 rgba(232, 67, 44, 0); }
+        to { box-shadow: 0 0 16px rgba(232, 67, 44, 0.45); }
+      }
+
+      .overlay:not([hidden]) { animation: menu-fade 200ms ease-out both; }
+      #hud:not([hidden]) { animation: menu-fade 260ms ease-out both; }
+      .stagger > * {
+        animation: menu-drop 340ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+        animation-delay: calc(50ms + var(--i, 0) * 45ms);
+      }
+      .stagger > :nth-child(2) { --i: 1; }
+      .stagger > :nth-child(3) { --i: 2; }
+      .stagger > :nth-child(4) { --i: 3; }
+      .stagger > :nth-child(5) { --i: 4; }
+      .stagger > :nth-child(6) { --i: 5; }
+      .stagger > :nth-child(7) { --i: 6; }
+      .stagger > :nth-child(n + 8) { --i: 7; }
+      /* Controls fade only: never measured or tapped mid-shift. */
+      .stagger > .btn-row,
+      .stagger > .btn-grid,
+      .stagger > .settings-tabs,
+      .stagger > .settings-panels { animation-name: menu-fade; }
+      .settings-rows:not([hidden]) { animation: menu-fade 180ms ease-out both; }
+
+      /* ------------------------- buttons --------------------------------- */
+
+      .btn { position: relative; }
+      .btn:focus-visible { border-color: var(--gold-hi); }
+      @media (hover: hover) and (pointer: fine) {
+        .btn:hover { border-color: var(--gold-hi); }
+      }
+      .btn-primary {
+        border-color: var(--orange);
+        background: linear-gradient(180deg, #3d2413, #25160b);
+        color: #fff1e4;
+        box-shadow: inset 0 1px 0 rgba(255, 190, 130, 0.16), 0 0 20px rgba(242, 97, 10, 0.16);
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .btn-primary:hover {
+          border-color: #ff8a3d;
+          background: linear-gradient(180deg, #52301a, #301c0d);
+        }
+      }
+      .btn-ghost {
+        background: transparent;
+        border-color: #61758c;
+        color: var(--steel-4);
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .btn-ghost:hover { background: rgba(41, 52, 67, 0.5); }
+      }
+      .btn[data-armed] {
+        border-color: #e8432c;
+        color: #ffe0d6;
+        background: linear-gradient(180deg, rgba(120, 30, 18, 0.7), rgba(70, 16, 10, 0.7));
+        animation: menu-armed 700ms ease-in-out infinite alternate;
+      }
+      .btn kbd.key {
+        display: inline-block;
+        margin-left: 8px;
+        padding: 0 6px;
+        border: 1px solid currentColor;
+        border-radius: 3px;
+        font: 700 11px/1.5 var(--ui-font);
+        letter-spacing: 0;
+        opacity: 0.72;
+        vertical-align: 2px;
+      }
+      body.touch .btn .hint-key { display: none; }
+
+      .btn-row { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+      .btn-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; }
+      .btn-grid .btn { width: 100%; }
+
+      /* ------------------------- title ----------------------------------- */
+
+      .title-actions { margin-top: 30px; }
+      @media (max-width: 520px) {
+        .title-actions { flex-direction: column; align-items: center; gap: 10px; }
+        .title-actions .btn { width: min(280px, 100%); }
+      }
+      .title-records {
+        margin-top: 16px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 20px;
+        font-size: 12px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .title-records[hidden] { display: none; }
+      .title-records b {
+        color: var(--gold-hi);
+        font-variant-numeric: tabular-nums;
+        letter-spacing: 0.04em;
+      }
+
+      /* ------------------------- pause ----------------------------------- */
 
       .result-title {
-        font-size: clamp(30px, 6vw, 58px);
+        font-size: clamp(30px, 5.4vw, 52px);
         font-weight: 900;
         letter-spacing: 0.06em;
-        color: var(--orange);
-        margin-bottom: 10px;
+        line-height: 1.05;
+        color: var(--silver-hi);
+        margin-bottom: 8px;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 24px rgba(0, 0, 0, 0.55);
       }
-      .result-stats {
-        font: 13px/2.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-        color: var(--steel-4);
-        margin-bottom: 28px;
-      }
-      .result-stats b { color: var(--silver-hi); font-weight: 700; }
-      .result-score {
-        font-size: clamp(22px, 3.6vw, 36px);
-        font-weight: 900;
+      .pause-panel { width: min(420px, 100%); }
+      .pause-context {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 4px 16px;
+        margin: 2px 0 20px;
+        font-size: 12px;
         letter-spacing: 0.14em;
-        color: var(--teal);
-        margin-bottom: 18px;
+        text-transform: uppercase;
+        color: var(--ink-dim);
       }
-      .btn-row { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+      .pause-context:empty { display: none; }
+      .pause-context b { color: var(--silver-hi); font-weight: 700; letter-spacing: 0.08em; }
+      .pause-note {
+        min-height: 1.3em;
+        margin-top: 10px;
+        font-size: 12px;
+        letter-spacing: 0.12em;
+        color: #ffb59f;
+      }
+      .pause-panel .hint { margin-top: 8px; }
+
+      /* ------------------------- options --------------------------------- */
+
+      .settings { width: min(640px, 100%); }
+      .settings .result-title { margin-bottom: 4px; }
+      .settings-tabs {
+        display: flex;
+        justify-content: center;
+        gap: 2px;
+        margin-top: 10px;
+        border-bottom: 1px solid rgba(173, 192, 200, 0.16);
+      }
+      .settings-tabs [role='tab'] {
+        appearance: none;
+        min-height: var(--touch-min);
+        min-width: var(--touch-min);
+        margin-bottom: -1px;
+        padding: 8px 16px;
+        border: 0;
+        border-bottom: 2px solid transparent;
+        background: transparent;
+        color: var(--ink-dim);
+        font: 800 12px/1 var(--ui-font);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        cursor: pointer;
+        touch-action: manipulation;
+      }
+      @media (hover: hover) and (pointer: fine) {
+        .settings-tabs [role='tab']:hover { color: var(--silver-hi); }
+      }
+      .settings-tabs [role='tab'][aria-selected='true'] {
+        color: var(--silver-hi);
+        border-bottom-color: var(--orange);
+      }
+      .settings-tabs [role='tab']:focus-visible { outline: 2px solid var(--teal); outline-offset: -3px; }
+      .tab-short { display: none; }
+      /* Every panel occupies the same grid cell, and a closed one is only
+         invisible: the box is always as tall as the tallest group, so the tab
+         strip never jumps under the cursor (it moved 22 px between tabs). */
+      .settings-panels { display: grid; }
+      .settings-panels > .settings-rows { grid-area: 1 / 1; margin: 14px 0 10px; }
+      .settings-rows[hidden] { visibility: hidden; pointer-events: none; animation: none; }
+      /* The reload note reserves its line, so it cannot shove the panel either. */
+      .settings .setting-note[hidden] { display: block; visibility: hidden; }
+      /* Five quality levels in one segmented row wherever the row is full width. */
+      #opt-quality { flex-wrap: nowrap; gap: 0; }
+      #opt-quality button {
+        flex: 1 1 0;
+        min-width: 0;
+        padding-left: 4px;
+        padding-right: 4px;
+        border-radius: 0;
+        letter-spacing: 0.06em;
+      }
+      .setting-stack:has(#opt-quality) { grid-column: 1 / -1; }
+      #opt-quality button + button { border-left-width: 0; }
+      #opt-quality button[aria-checked='true'] + button { border-left-width: 0; }
+      /* Short landscape keeps the group beside its label (one row of height);
+         the group takes the rest of the row rather than its content width, or
+         five labels overprinted each other and "Phone" left the frame. */
+      @media (max-height: 460px) and (orientation: landscape) {
+        .setting-stack:has(#opt-quality) { grid-template-columns: auto minmax(0, 1fr); }
+        #opt-quality { min-width: 0; }
+        #opt-quality button { font-size: 10px; letter-spacing: 0.02em; padding-left: 2px; padding-right: 2px; }
+      }
+      /* The key map: read-only, two columns of key and action. */
+      .setting-keys { grid-column: 1 / -1; grid-template-columns: auto minmax(0, 1fr); align-items: start; }
+      .keymap {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px 18px;
+        margin: 0;
+      }
+      .keymap > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
+      .keymap dt { flex: none; min-width: 7.5em; text-align: right; }
+      .keymap dd { margin: 0; font-size: 12px; color: var(--silver-hi); white-space: nowrap; }
+      .keymap kbd, .setting-name small kbd {
+        display: inline-block;
+        min-width: 1.7em;
+        margin-left: 2px;
+        padding: 1px 5px;
+        border: 1px solid #61758c;
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        background: var(--steel-1);
+        color: var(--silver-hi);
+        font: 700 11px/1.4 var(--ui-font);
+        text-align: center;
+        text-transform: none;
+        letter-spacing: 0;
+      }
+      .setting-name small kbd { font-size: 10px; padding: 0 4px; }
+      .settings-actions { margin-top: 4px; }
+      .settings-foot { margin-top: 12px; font-size: 11px; }
+
+      /* Phone text floor: no option label or explanation below 11 px. */
+      body.touch .setting-name small { font-size: 11px; letter-spacing: 0.04em; }
+      body.touch .setting-note { font-size: 11px; }
+      body.touch .setting-name small kbd { font-size: 11px; }
+      @media (max-height: 460px) and (orientation: landscape) {
+        body.touch .setting-name { font-size: 11px; letter-spacing: 0.08em; }
+        /* Five 11 px labels still fit the group beside its label: the side
+           padding goes, not the type. */
+        body.touch #opt-quality button { font-size: 11px; letter-spacing: 0; padding-left: 1px; padding-right: 1px; }
+      }
+
+      /* Only what this device can use. A hybrid laptop keeps both rows. */
+      body:not(.touch) .opt-touch-only { display: none; }
+      body.touch .opt-mouse-only { display: none; }
+      @media (any-pointer: fine) {
+        body.touch .opt-mouse-only { display: grid; }
+      }
+      /* A phone-width screen is never the hybrid laptop that rule is for (the
+         iOS Simulator reports a fine pointer too, and showed the key map
+         running off a 360 px portrait screen): the key map goes, and on any
+         other narrow window it stacks to one column instead of overflowing. */
+      @media (max-width: 480px) {
+        body.touch .setting-keys { display: none; }
+        .setting-keys { grid-template-columns: minmax(0, 1fr); }
+        .keymap { grid-template-columns: minmax(0, 1fr); gap: 4px; }
+        .keymap dt { min-width: 6em; }
+        .keymap dd { white-space: normal; }
+      }
+
+      /* Slider fill shows the value at a glance; --pct is set by SettingsScreen. */
+      .setting-range::-webkit-slider-runnable-track {
+        background: linear-gradient(90deg, var(--teal) 0 var(--pct, 50%), var(--steel-2) var(--pct, 50%) 100%);
+      }
+      .setting-range::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--teal); }
+
+      @media (min-width: 700px) {
+        .settings { width: min(780px, 100%); }
+      }
+      /* Large screens: the card grows with the HUD rather than floating small. */
+      @media (min-width: 1500px) and (min-height: 860px) {
+        body:not(.touch) .menu-panel.settings,
+        body:not(.touch) .pause-panel,
+        body:not(.touch) .menu-panel.results { zoom: min(var(--ui-scale, 1), 1.35); }
+      }
+      @media (max-width: 480px) {
+        .tab-long { display: none; }
+        .tab-short { display: inline; }
+        .settings-tabs { gap: 0; }
+        .settings-tabs [role='tab'] {
+          flex: 1 1 0;
+          padding: 8px 2px;
+          font-size: 11px;
+          letter-spacing: 0.08em;
+        }
+      }
+      @media (max-width: 400px) {
+        /* "Controls" ran into "Display" on a 360 px phone. */
+        .settings-tabs [role='tab'] { letter-spacing: 0.03em; }
+        #opt-quality button { font-size: 11px; letter-spacing: 0; padding-left: 1px; padding-right: 1px; }
+      }
+
+      /* ------------------------- results --------------------------------- */
+
+      .results {
+        width: min(900px, 100%);
+        display: grid;
+        grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+        grid-template-areas: 'head head' 'hero stats' 'log log' 'actions actions';
+        align-items: center;
+        gap: 18px 30px;
+        text-align: left;
+      }
+      #screen-over .menu-panel::before {
+        background: linear-gradient(90deg, transparent, #b8470a 18%, var(--orange) 50%, #b8470a 82%, transparent);
+      }
+      #screen-over.secure .menu-panel::before {
+        background: linear-gradient(90deg, transparent, #0f7f7a 18%, var(--teal) 50%, #0f7f7a 82%, transparent);
+      }
+      .results-head { grid-area: head; text-align: center; }
+      .result-kicker {
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        margin-bottom: 4px;
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.3em;
+        text-transform: uppercase;
+        color: #ff9b6a;
+      }
+      #screen-over.secure .result-kicker { color: var(--teal); }
+      #screen-over .result-title { color: var(--orange); margin-bottom: 6px; }
       #screen-over.secure .result-title { color: var(--teal); }
+      .result-story { font-size: 14px; letter-spacing: 0.03em; line-height: 1.45; color: var(--steel-4); }
+      .result-story b { color: var(--silver-hi); }
+
+      .results-hero {
+        grid-area: hero;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 22px;
+      }
+      .grade {
+        --g: var(--grade-c);
+        flex: none;
+        width: 104px;
+        height: 104px;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        border: 2px solid var(--g);
+        border-radius: 50%;
+        background: radial-gradient(circle, rgba(13, 15, 19, 0.2), rgba(13, 15, 19, 0.85) 70%);
+        box-shadow: inset 0 0 0 5px rgba(13, 15, 19, 0.9), inset 0 0 0 6px var(--g), 0 0 22px rgba(0, 0, 0, 0.5);
+        opacity: 0;
+      }
+      .grade[data-grade='S'] { --g: var(--grade-s); box-shadow: inset 0 0 0 5px rgba(13, 15, 19, 0.9), inset 0 0 0 6px var(--g), 0 0 30px rgba(255, 210, 122, 0.4); }
+      .grade[data-grade='A'] { --g: var(--grade-a); }
+      .grade[data-grade='B'] { --g: var(--grade-b); }
+      .grade[data-grade='D'] { --g: var(--grade-d); }
+      .grade.reveal { opacity: 1; animation: menu-stamp 440ms cubic-bezier(0.2, 1.4, 0.4, 1) both; }
+      .grade b {
+        font-size: 60px;
+        line-height: 0.92;
+        font-weight: 900;
+        color: var(--g);
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.6), 0 0 18px rgba(0, 0, 0, 0.5);
+      }
+      .grade small {
+        margin-top: 2px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+        font-variant-numeric: tabular-nums;
+      }
+      .hero-score { min-width: 0; }
+      .result-score {
+        font-size: clamp(36px, 5.4vw, 58px);
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.02em;
+        color: var(--silver-hi);
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5);
+      }
+      .result-best {
+        margin-top: 8px;
+        font-size: 11px;
+        line-height: 1.6;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .result-best b { color: var(--gold-hi); font-variant-numeric: tabular-nums; letter-spacing: 0.04em; }
+      .best-stamp {
+        --rot: -4deg;
+        display: inline-block;
+        margin-top: 8px;
+        padding: 3px 10px;
+        border: 2px solid var(--gold-hi);
+        background: rgba(176, 138, 94, 0.16);
+        color: var(--gold-hi);
+        font-size: 12px;
+        font-weight: 900;
+        letter-spacing: 0.26em;
+        white-space: nowrap;
+        text-transform: uppercase;
+        transform: rotate(var(--rot));
+        box-shadow: 0 0 18px rgba(242, 229, 199, 0.22);
+        opacity: 0;
+      }
+      .best-stamp[hidden] { display: none; }
+      .best-stamp.reveal { opacity: 1; animation: menu-stamp 480ms cubic-bezier(0.2, 1.5, 0.4, 1) both; }
+
+      .result-stats {
+        grid-area: stats;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 1px;
+        margin: 0;
+        border: 1px solid rgba(173, 192, 200, 0.12);
+        background: rgba(173, 192, 200, 0.1);
+      }
+      .stat {
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        gap: 2px;
+        min-width: 0;
+        padding: 9px 12px;
+        background: rgba(10, 13, 18, 0.82);
+        animation: menu-fade 320ms ease-out both;
+        animation-delay: calc(140ms + var(--i, 0) * 55ms);
+      }
+      .stat-wide { grid-column: 1 / -1; }
+      .stat dt {
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .stat dd {
+        margin: 0;
+        font-size: 20px;
+        font-weight: 800;
+        color: var(--silver-hi);
+        font-variant-numeric: tabular-nums;
+      }
+      /* The breakdown wraps instead of truncating: the rare variants are the
+         ones a player is proudest of, and an ellipsis cut exactly those. */
+      .stat dd small {
+        display: block;
+        font-size: 11px;
+        font-weight: 500;
+        line-height: 1.35;
+        letter-spacing: 0.02em;
+        color: var(--ink-dim);
+      }
+      .stat dd { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+      .stat-main { min-width: 0; }
+      /* The anchors are landmarks, not specimens: their own figure. */
+      .stat-aside {
+        flex: none;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        padding-left: 12px;
+        border-left: 1px solid rgba(173, 192, 200, 0.14);
+      }
+      .stat-aside b { font-size: 0.8em; color: var(--gold-hi); }
+      .stat-aside em {
+        font-style: normal;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      /* The actions stay reachable however short the window: if the card has
+         to scroll, the row rides the bottom of the overlay on its own plate. */
+      .results-actions {
+        grid-area: actions;
+        position: sticky;
+        bottom: 0;
+        z-index: 1;
+        padding: 8px 0 2px;
+        background: linear-gradient(180deg, rgba(10, 13, 18, 0), rgba(10, 13, 18, 0.94) 30%);
+      }
+      .results-actions .btn { min-width: 160px; padding-left: 22px; padding-right: 22px; }
+
+      /* Grade terms: the simulation's four grading terms as hairline meters
+         under the score, revealed with the letter. */
+      .grade-terms {
+        display: grid;
+        /* A narrow hero wraps the fifth meter rather than overprinting labels. */
+        grid-template-columns: repeat(auto-fit, minmax(62px, 1fr));
+        gap: 14px;
+        max-width: calc(var(--terms, 4) * 88px);
+        margin-top: 10px;
+        opacity: 0;
+        transition: opacity 260ms ease-out;
+      }
+      .grade-terms.reveal { opacity: 1; }
+      .term span {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        gap: 4px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .term span b {
+        font-size: 12px;
+        letter-spacing: 0;
+        color: var(--silver-hi);
+        font-variant-numeric: tabular-nums;
+      }
+      .grade-advice {
+        margin-top: 8px;
+        max-width: 340px;
+        font-size: 12px;
+        line-height: 1.4;
+        letter-spacing: 0.02em;
+        color: var(--steel-4);
+        opacity: 0;
+        transition: opacity 260ms ease-out 200ms;
+      }
+      .grade-terms.reveal + .grade-advice { opacity: 1; }
+      .grade-advice:empty { display: none; }
+      .term i {
+        position: relative;
+        display: block;
+        height: 3px;
+        margin-top: 4px;
+        overflow: hidden;
+        background: rgba(173, 192, 200, 0.16);
+      }
+      .term i::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: var(--gold-hi);
+        transform: scaleX(var(--v, 0));
+        transform-origin: left;
+        transition: transform 520ms cubic-bezier(0.2, 0.9, 0.3, 1) 120ms;
+      }
+      .grade-terms:not(.reveal) .term i::after { transform: scaleX(0); }
+      /* A run that fell short is scaled by how far it got: that meter is the
+         loss's colour, so a D beside four full meters reads as the route. */
+      .term[data-term='progress'] span { color: var(--orange); }
+      .term[data-term='progress'] i::after { background: var(--orange); }
+
+      /* Sector log: the run as a route. One cell per required sector; the rule
+         under each is teal for a sector held untouched and orange as long as
+         the damage it cost; gold pips are close calls. */
+      .sector-log { grid-area: log; min-width: 0; }
+      .log-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .log-head b { color: var(--silver-hi); }
+      .log-side { letter-spacing: 0.14em; white-space: nowrap; }
+      .log-cells {
+        display: grid;
+        grid-template-columns: repeat(var(--n, 7), minmax(0, 1fr));
+        gap: 4px;
+        margin: 6px 0 0;
+        padding: 0;
+        list-style: none;
+      }
+      .log-cell {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        gap: 1px;
+        min-width: 0;
+        padding: 6px 8px 8px;
+        overflow: hidden;
+        border: 1px solid rgba(173, 192, 200, 0.12);
+        background: rgba(10, 13, 18, 0.82);
+        animation: menu-fade 320ms ease-out both;
+        animation-delay: calc(520ms + var(--i, 0) * 60ms);
+      }
+      .log-cell::after {
+        content: '';
+        position: absolute;
+        left: 0;
+        bottom: 0;
+        height: 3px;
+        width: calc(var(--hurt, 0) * 100%);
+        background: var(--orange);
+      }
+      .log-cell[data-status='clean']::after { width: 100%; background: var(--teal); }
+      .log-code {
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--ink-dim);
+      }
+      .log-cell[data-core] .log-code { color: var(--gold-hi); }
+      .log-time {
+        font-size: 15px;
+        font-weight: 800;
+        line-height: 1.15;
+        color: var(--silver-hi);
+        font-variant-numeric: tabular-nums;
+      }
+      .log-detail, .log-mark {
+        overflow: hidden;
+        font-size: 10px;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+      }
+      .log-detail { color: var(--ink-dim); }
+      .log-mark {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        color: #ff9b6a;
+        font-variant-numeric: tabular-nums;
+      }
+      .log-cell[data-status='clean'] .log-mark { color: var(--teal); }
+      .log-pips { display: inline-flex; gap: 2px; }
+      .log-pips i {
+        width: 5px;
+        height: 5px;
+        background: var(--grade-s);
+        transform: rotate(45deg);
+      }
+      .log-cell[data-status='fell'] {
+        border-color: rgba(242, 97, 10, 0.55);
+        background: rgba(40, 14, 6, 0.82);
+      }
+      .log-cell[data-status='fell'] .log-code,
+      .log-cell[data-status='fell'] .log-time { color: var(--orange); }
+      .log-cell[data-status='ahead'] {
+        border-style: dashed;
+        background: rgba(10, 13, 18, 0.4);
+        opacity: 0.5;
+      }
+      .log-cell[data-status='ahead'] .log-mark { color: var(--ink-dim); }
+
+      @media (max-width: 640px) {
+        .results {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-areas: 'head' 'hero' 'stats' 'log' 'actions';
+          gap: 12px;
+        }
+        .grade-terms { gap: 8px 5px; margin-top: 6px; }
+        /* "Guard 100" is the widest cell; it must fit a third of a 360 px hero. */
+        .term span { font-size: 10px; letter-spacing: 0; gap: 3px; }
+        .term span b { font-size: 11px; }
+        .grade-advice { font-size: 11px; margin-top: 6px; }
+        .stat dt { font-size: 10.5px; letter-spacing: 0.12em; }
+        .log-cells { gap: 3px; margin-top: 4px; }
+        .log-cell { padding: 4px 3px 6px; align-items: center; text-align: center; }
+        .log-code { letter-spacing: 0.08em; }
+        .log-time { font-size: 12px; }
+        .log-detail { display: none; }
+        .log-mark { font-size: 9px; letter-spacing: 0.04em; }
+        .log-pips { display: none; }
+        #screen-over {
+          padding:
+            max(12px, var(--safe-t)) max(12px, var(--safe-r))
+            max(12px, var(--safe-b)) max(12px, var(--safe-l));
+        }
+        .overlay-live .menu-panel { padding: 18px 14px 14px; }
+        .result-kicker { font-size: 10px; letter-spacing: 0.2em; }
+        .best-stamp { letter-spacing: 0.16em; font-size: 11px; }
+        .overlay-live .menu-panel::before { left: 14px; right: 14px; }
+        #screen-over .result-title { font-size: clamp(20px, 6.4vw, 30px); letter-spacing: 0.02em; }
+        .result-story { font-size: 12px; }
+        .grade { width: 80px; height: 80px; }
+        .grade b { font-size: 42px; }
+        .grade small { margin-top: 0; font-size: 9.5px; letter-spacing: 0.04em; }
+        .result-score { font-size: clamp(30px, 9vw, 42px); }
+        .stat { padding: 7px 10px; }
+        .stat dd { font-size: 17px; }
+        .results-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .results-actions .btn { min-width: 0; padding: 12px 6px; letter-spacing: 0.12em; }
+      }
+
+      /* A short desktop window (a laptop browser with its toolbars is about
+         1024x560): the same card, tightened so Retry is never below the fold. */
+      @media (min-aspect-ratio: 23/20) and (max-height: 700px) and (min-height: 461px) {
+        #screen-over .result-title { font-size: clamp(26px, 6vh, 44px); margin-bottom: 4px; }
+        .result-story { font-size: 13px; }
+        .results { gap: 12px 26px; }
+        .overlay-live .menu-panel.results { padding: 18px 24px 14px; }
+        .grade { width: 86px; height: 86px; }
+        .grade b { font-size: 48px; }
+        .result-score { font-size: clamp(32px, 7vh, 48px); }
+        .stat { padding: 6px 12px; }
+        .stat dd { font-size: 17px; }
+        .log-cell { padding: 4px 6px 6px; }
+        .log-time { font-size: 13px; }
+        .log-detail { display: none; }
+        .results-actions .btn { padding-top: 11px; padding-bottom: 11px; min-height: 44px; }
+      }
+
+      /* Short landscape: width to spare, no height. Head and score on the left,
+         the stat table beside them, actions in one row underneath. */
+      @media (max-height: 460px) and (orientation: landscape) {
+        .result-title { font-size: clamp(20px, 3.4vw, 28px); margin-bottom: 2px; }
+        .overlay-live .menu-panel { padding: 12px 18px 10px; }
+        .pause-context { margin-bottom: 10px; }
+        .pause-actions { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        .pause-panel { width: min(520px, 100%); }
+        .pause-note { margin-top: 4px; }
+        .title-actions { margin-top: 14px; }
+        .title-records { margin-top: 8px; }
+        .settings-tabs { margin-top: 2px; }
+        .settings-panels .settings-rows { margin: 8px 0 6px; }
+        .keymap { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 4px 10px; }
+        .keymap dt { min-width: 0; }
+        .settings-foot { display: none; }
+        .results {
+          grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+          grid-template-areas: 'head stats' 'hero stats' 'log log' 'actions actions';
+          gap: 8px 20px;
+        }
+        /* Two columns even in the ~115 px hero an iPhone's side insets leave. */
+        .grade-terms { margin-top: 6px; grid-template-columns: repeat(auto-fit, minmax(52px, 1fr)); gap: 4px 6px; }
+        .results-hero { gap: 12px; }
+        .term span { font-size: 9px; letter-spacing: 0; gap: 2px; }
+        /* "100 pts" inside a 72 px ring. */
+        .grade small { margin-top: 0; font-size: 9px; letter-spacing: 0.02em; }
+        .term span b { font-size: 10px; }
+        /* No height for the explanation here; the meters carry their values. */
+        .grade-advice { display: none; }
+        .results-actions { padding-top: 4px; }
+        .log-detail { display: none; }
+        .log-head { display: none; }
+        .log-cells { margin-top: 0; }
+        .log-cell { padding: 3px 6px 5px; }
+        .log-time { font-size: 12px; }
+        .result-kicker { font-size: 10px; margin-bottom: 2px; letter-spacing: 0.14em; }
+        #screen-over .result-title { font-size: clamp(18px, 3vw, 26px); }
+        .result-story { font-size: 11px; line-height: 1.35; }
+        .grade { width: 72px; height: 72px; }
+        .grade b { font-size: 38px; }
+        .result-score { font-size: clamp(26px, 4.4vw, 38px); }
+        .result-best { margin-top: 4px; font-size: 10px; }
+        .best-stamp { margin-top: 4px; font-size: 10px; padding: 2px 8px; }
+        .stat { padding: 5px 10px; }
+        .stat dt { font-size: 9px; }
+        .stat dd { font-size: 15px; }
+        .stat dd small { font-size: 10px; }
+        .results-actions .btn { min-width: 0; padding: 10px 18px; }
+      }
+
+      /* Phone text floor (2026-11, critic panel 3): on touch no Results text
+         drops below 11 px. The card wins the room back from chrome, never from
+         a label: on short screens the explanation line and the log heading go,
+         and the stat rows tighten. */
+      @media (max-width: 640px) {
+        body.touch .results-hero { gap: 14px; }
+        body.touch .grade-terms { gap: 8px 4px; }
+        body.touch .term span { font-size: 11px; letter-spacing: 0; gap: 2px; }
+        body.touch .term span b { font-size: 11px; }
+        body.touch .grade small { font-size: 11px; letter-spacing: 0.02em; }
+        body.touch .result-kicker { font-size: 11px; letter-spacing: 0.16em; }
+        body.touch .stat dt { font-size: 11px; letter-spacing: 0.1em; }
+        body.touch .stat-aside em,
+        body.touch .log-head,
+        body.touch .log-code,
+        body.touch .log-mark { font-size: 11px; }
+      }
+      /* Short portrait (375x667, and 360x740 under a notch): the card scrolled
+         and the sticky action row rode over the sector log. */
+      @media (max-width: 640px) and (orientation: portrait) and (max-height: 760px) {
+        .results { gap: 8px; }
+        .grade-advice { display: none; }
+        .stat { padding: 4px 10px; }
+        .log-head { display: none; }
+        .log-cells { margin-top: 0; }
+        .overlay-live .menu-panel.results { padding-top: 14px; padding-bottom: 10px; }
+      }
+      @media (max-height: 460px) and (orientation: landscape) {
+        /* An even split gives the hero the width for three 11 px meters. */
+        body.touch .results { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+        body.touch .results-hero { gap: 10px; }
+        body.touch .grade-terms { grid-template-columns: repeat(auto-fit, minmax(66px, 1fr)); gap: 4px 5px; }
+        body.touch .term span { font-size: 11px; letter-spacing: 0; gap: 2px; }
+        body.touch .term span b { font-size: 11px; }
+        body.touch .grade small { font-size: 11px; letter-spacing: 0; }
+        body.touch .result-kicker,
+        body.touch .result-best,
+        body.touch .result-story,
+        body.touch .stat dd small,
+        body.touch .stat-aside em,
+        body.touch .log-code,
+        body.touch .log-mark { font-size: 11px; }
+        body.touch .stat dt { font-size: 11px; letter-spacing: 0.08em; }
+        body.touch .stat { padding: 3px 10px; }
+      }
+
+      /* ------------------------- first-run tips -------------------------- */
+
+      /* Below the threat ring, never inside it: at 50% + 118 px the chip sat
+         exactly on the "behind you" arc. Desktop puts it in the lower third,
+         above the mouse-capture hint; touch layouts place it against their
+         control lanes below. While an arc behind the player is live the chip
+         steps aside entirely (Hud: #hud.rear-threat). */
+      #coach {
+        position: absolute;
+        left: 50%;
+        bottom: calc(var(--safe-b) + 136px);
+        transform: translateX(-50%);
+        max-width: calc(100% - 32px);
+        pointer-events: none;
+        transition: opacity 120ms ease-out;
+      }
+      #hud.rear-threat #coach { opacity: 0; }
+      .coach-chip {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        padding: 8px 16px 8px 12px;
+        border-left: 3px solid var(--gold-hi);
+        background: rgba(10, 14, 20, 0.8);
+        box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+        color: var(--hud-ink);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1.35;
+        letter-spacing: 0.04em;
+        text-shadow: var(--hud-shadow);
+        opacity: 0;
+        transform: translateY(6px);
+        transition: opacity 220ms ease-out, transform 260ms cubic-bezier(0.2, 0.8, 0.2, 1), border-color 200ms;
+      }
+      #coach.show .coach-chip { opacity: 1; transform: none; }
+      #coach.done .coach-chip { border-left-color: var(--teal); }
+      .coach-chip .coach-tag {
+        flex: none;
+        font-size: 10px;
+        font-weight: 800;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: var(--gold-hi);
+      }
+      #coach.done .coach-tag { color: var(--teal); }
+      body.touch .coach-chip .coach-tag { font-size: 11px; letter-spacing: 0.16em; }
+      .coach-chip kbd {
+        display: inline-block;
+        min-width: 1.7em;
+        padding: 1px 6px;
+        border: 1px solid rgba(244, 241, 234, 0.55);
+        border-bottom-width: 2px;
+        border-radius: 3px;
+        background: rgba(23, 32, 40, 0.9);
+        color: var(--hud-ink);
+        font: 700 11px/1.4 var(--ui-font);
+        text-align: center;
+        text-shadow: none;
+      }
+      @media (max-height: 520px) and (orientation: landscape) {
+        #coach { bottom: calc(var(--safe-b) + 112px); }
+      }
+      /* Touch portrait: just above the control lane and the integrity bar. */
+      @media (orientation: portrait) {
+        body.touch #coach {
+          bottom: calc(var(--safe-b) + var(--lane-h) + 14px);
+          max-width: calc(100% - 24px - var(--safe-l) - var(--safe-r));
+          width: max-content;
+        }
+        body.touch .coach-chip { font-size: 12px; }
+      }
+      /* Touch landscape: in the gap between the parked stick and Dash, so it
+         never sits on a control, the integrity bar or the ring. */
+      @media (orientation: landscape) {
+        body.touch #coach {
+          left: calc(var(--safe-l) + var(--stick-size) + 2 * var(--touch-pad));
+          right: calc(var(--safe-r) + 34px + var(--fire-size) + 18px + var(--dash-size) + 12px);
+          bottom: calc(var(--safe-b) + 8px);
+          transform: none;
+          max-width: none;
+          display: flex;
+          justify-content: center;
+        }
+        body.touch .coach-chip { font-size: 12px; padding: 6px 12px 6px 10px; }
+      }
+
+      /* ------------------------- reduced motion -------------------------- */
+
+      @media (prefers-reduced-motion: reduce) {
+        .overlay, .overlay *, #hud, .coach-chip { animation: none !important; transition: none !important; }
+        .grade, .best-stamp, .grade-terms { opacity: 1; }
+      }
+      body.reduce-motion .overlay,
+      body.reduce-motion .overlay *,
+      body.reduce-motion #hud,
+      body.reduce-motion .coach-chip { animation: none !important; transition: none !important; }
+      body.reduce-motion .grade,
+      body.reduce-motion .best-stamp,
+      body.reduce-motion .grade-terms { opacity: 1; }
+      body.reduce-motion #integrity.invuln .fill { animation: none; opacity: 0.7; }
+      body.reduce-motion #status,
+      body.reduce-motion #chain,
+      body.reduce-motion #boss { transition: none; }
+      /* =================================================================
+         Live title (2026-11 endings package). The run's entry airlock is
+         drawn behind this screen by the attract camera, so the screen itself
+         is only shade and type: a left-hand legibility gradient on wide
+         screens, with the exit hatch framed to the right of the lockup, and a
+         centred stack on narrow ones. No font files ship (invariant 4): the
+         lockup is the system face at its heaviest weight, filled with a
+         gradient and extruded with stacked drop-shadows in em units, so it
+         scales as one object at every size.
+         ================================================================= */
+      #screen-title.title-screen {
+        place-items: center start;
+        text-align: left;
+        padding:
+          max(20px, var(--safe-t))
+          max(20px, var(--safe-r))
+          max(20px, var(--safe-b))
+          max(clamp(24px, 6.5vw, 116px), var(--safe-l));
+        /* The scrim holds dark across the whole lockup column (the "3D" and
+           the tagline reach ~55% of a 1280 frame) so a wall stencil in the
+           attract scene can never ghost through the type. */
+        background:
+          linear-gradient(90deg, rgba(5, 7, 10, 0.9) 0%, rgba(5, 7, 10, 0.8) 34%,
+            rgba(5, 7, 10, 0.5) 54%, rgba(5, 7, 10, 0.12) 72%, rgba(5, 7, 10, 0) 82%),
+          linear-gradient(0deg, rgba(5, 7, 10, 0.6) 0%, rgba(5, 7, 10, 0) 26%),
+          linear-gradient(180deg, rgba(5, 7, 10, 0.5) 0%, rgba(5, 7, 10, 0) 18%);
+      }
+      #screen-title .title-panel {
+        position: relative;
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        width: min(560px, 100%);
+        padding: 0;
+        background: none;
+      }
+      /* A soft local plate right behind the lockup and its fine print. */
+      #screen-title .title-panel::before {
+        content: '';
+        display: block;
+        position: absolute;
+        inset: -48px -90px -40px -60px;
+        height: auto;
+        opacity: 1;
+        z-index: -1;
+        background: radial-gradient(ellipse 60% 58% at 42% 48%, rgba(5, 7, 10, 0.62), rgba(5, 7, 10, 0) 100%);
+        pointer-events: none;
+      }
+
+      .title-kicker {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin-bottom: 16px;
+        font: 800 12px/1.2 var(--ui-font);
+        letter-spacing: 0.26em;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+        text-transform: uppercase;
+        color: var(--gold-hi);
+      }
+      .kicker-lamp {
+        flex: none;
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #ff5a2a;
+        box-shadow: 0 0 10px rgba(255, 90, 42, 0.9);
+        animation: kicker-lamp 1.4s ease-in-out infinite;
+      }
+      @keyframes kicker-lamp {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.25; }
+      }
+
+      #screen-title .title { margin: 0 0 20px; line-height: 1; }
+      #screen-title .title-main {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 0;
+        font-size: clamp(52px, min(9.4vw, 15.5vh), 150px);
+        font-weight: 900;
+        line-height: 0.88;
+        letter-spacing: -0.012em;
+      }
+      .title-line2 { display: flex; align-items: baseline; gap: 0.2em; }
+      #screen-title .title-clawd,
+      #screen-title .title-pop,
+      #screen-title .title-3d {
+        display: inline-block;
+        transform-origin: 50% 100%;
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+        text-shadow: none;
+        animation: title-thud 560ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      #screen-title .title-clawd {
+        background-image: linear-gradient(180deg, #ffc98a 0%, #ff9238 26%, #f2610a 58%, #c94b05 100%);
+        filter:
+          drop-shadow(0 0.018em 0 #9b3a04)
+          drop-shadow(0 0.018em 0 #7b2d03)
+          drop-shadow(0 0.018em 0 #5b2102)
+          drop-shadow(0 0.07em 0.1em rgba(0, 0, 0, 0.6))
+          drop-shadow(0 0 0.28em rgba(242, 97, 10, 0.3));
+        animation-delay: 110ms;
+      }
+      #screen-title .title-pop {
+        background-image: linear-gradient(180deg, #b9fffa 0%, #4fe3dc 30%, #1fc9c2 60%, #11938e 100%);
+        filter:
+          drop-shadow(0 0.018em 0 #0d7a76)
+          drop-shadow(0 0.018em 0 #095d5a)
+          drop-shadow(0 0.018em 0 #06403e)
+          drop-shadow(0 0.07em 0.1em rgba(0, 0, 0, 0.6))
+          drop-shadow(0 0 0.28em rgba(31, 201, 194, 0.26));
+        animation-delay: 230ms;
+      }
+      /* "3D" — silver face, gold trim and a gold extrusion. */
+      #screen-title .title-3d {
+        margin: 0;
+        font-size: 1em;
+        letter-spacing: 0.01em;
+        text-indent: 0;
+        background-image: linear-gradient(178deg, var(--silver-hi) 0%, #c7d1d9 38%, var(--silver-lo) 62%, #e2e0d8 100%);
+        -webkit-text-stroke: 0.016em var(--gold);
+        paint-order: stroke fill;
+        filter:
+          drop-shadow(0 0.012em 0 var(--gold-hi))
+          drop-shadow(0 0.018em 0 var(--gold))
+          drop-shadow(0 0.018em 0 var(--gold-lo))
+          drop-shadow(0 0.07em 0.1em rgba(0, 0, 0, 0.65));
+        animation-delay: 350ms;
+      }
+      @keyframes title-thud {
+        0% { opacity: 0; transform: translateY(-0.32em) scale(1.04, 1.14); }
+        55% { opacity: 1; transform: translateY(0.02em) scale(1.04, 0.93); }
+        78% { transform: translateY(0) scale(0.99, 1.02); }
+        100% { opacity: 1; transform: none; }
+      }
+
+      #screen-title .tagline {
+        margin: 0;
+        padding-left: 14px;
+        border-left: 2px solid var(--orange);
+        font-size: clamp(12px, 1.2vw, 15px);
+        font-weight: 800;
+        letter-spacing: 0.26em;
+        line-height: 1.5;
+        color: #ece7dc;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8);
+      }
+      .tagline-sub {
+        display: block;
+        margin-top: 2px;
+        font-size: 0.86em;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: #c4d0d9;
+      }
+
+      #screen-title .title-actions {
+        flex-direction: column;
+        align-items: stretch;
+        width: min(320px, 100%);
+        gap: 10px;
+        margin-top: 28px;
+      }
+      #screen-title .title-actions .btn {
+        overflow: hidden;
+        padding: 13px 44px 13px 22px;
+        text-align: left;
+        background: linear-gradient(180deg, rgba(41, 52, 67, 0.82), rgba(26, 33, 43, 0.82));
+        border-color: rgba(208, 171, 114, 0.55);
+      }
+      /* Daily Lab says what it is (owner's playtest: "no explanation
+         whatsoever"). The seed is the local date, so everyone's today is the
+         same lab; Results and the title records name it the same way. */
+      #screen-title .title-actions .btn-sub {
+        display: block;
+        margin-top: 4px;
+        font-size: 11px;
+        font-weight: 600;
+        letter-spacing: 0.06em;
+        text-transform: none;
+        color: #9fb2c0;
+      }
+      #screen-title .title-actions .btn-primary {
+        padding-top: 16px;
+        padding-bottom: 16px;
+        font-size: clamp(15px, 1.7vw, 19px);
+        border-color: var(--orange);
+        background: linear-gradient(180deg, rgba(74, 40, 18, 0.92), rgba(40, 22, 10, 0.92));
+      }
+      /* A brass bar slides up the left edge on hover/focus, a chevron marks the
+         primary action. Both are decoration: neither moves the hit target. */
+      #screen-title .title-actions .btn::before {
+        content: '';
+        position: absolute;
+        left: 0;
+        top: 0;
+        bottom: 0;
+        width: 3px;
+        background: var(--gold-hi);
+        transform: scaleY(0);
+        transform-origin: 50% 100%;
+        transition: transform 160ms ease-out;
+      }
+      #screen-title .title-actions .btn-primary::before { background: var(--orange); transform: scaleY(1); }
+      #screen-title .title-actions .btn:focus-visible::before { transform: scaleY(1); }
+      @media (hover: hover) and (pointer: fine) {
+        #screen-title .title-actions .btn:hover::before { transform: scaleY(1); }
+      }
+      #screen-title .title-actions .btn-primary::after {
+        content: '';
+        position: absolute;
+        right: 20px;
+        top: 50%;
+        width: 9px;
+        height: 9px;
+        margin-top: -5px;
+        border-top: 2px solid currentColor;
+        border-right: 2px solid currentColor;
+        transform: rotate(45deg);
+        transition: transform 160ms ease-out;
+      }
+      @media (hover: hover) and (pointer: fine) {
+        #screen-title .title-actions .btn-primary:hover::after { transform: translateX(3px) rotate(45deg); }
+      }
+
+      #screen-title .title-records { justify-content: flex-start; margin-top: 16px; }
+      #screen-title .hint {
+        margin-top: 18px;
+        font-size: 13px;
+        letter-spacing: 0.06em;
+        color: #c0ccd6;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      }
+      #screen-title .hint kbd { font-size: 12px; }
+      #screen-title .project-credit { color: #c0ccd6; text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85); }
+      #screen-title .title-records { color: #c0ccd6; letter-spacing: 0.12em; }
+      #screen-title .project-credit { margin-top: 8px; }
+      #screen-title .orientation-note { margin-top: 10px; }
+      /* Short portrait (375×667 and Safari's shorter viewports): the Daily
+         Lab line costs a row, so the stack's own gaps pay for it and the
+         boot status at the foot never meets the credit line. */
+      @media (max-aspect-ratio: 23/20) and (max-height: 700px) {
+        #screen-title .title-actions { margin-top: 14px; gap: 8px; }
+        #screen-title .title-actions .btn { padding-top: 11px; padding-bottom: 11px; }
+        #screen-title .title-actions .btn-primary { padding-top: 13px; padding-bottom: 13px; }
+        #screen-title .title-actions .btn-sub { margin-top: 2px; }
+        #screen-title .orientation-note { margin-top: 6px; }
+        #screen-title .hint { margin-top: 12px; }
+      }
+      /* Safari portrait on a small phone (~375×600 with its bars): the
+         lockup scales by height and the tagline's second line goes, as it
+         does in short landscape, so Start through the credit fit unscrolled. */
+      @media (max-aspect-ratio: 23/20) and (max-height: 640px) {
+        #screen-title .title-main { font-size: clamp(40px, min(17vw, 9vh), 120px); }
+        #screen-title .tagline-sub { display: none; }
+        /* Pause carries the same note; the title needs the row more. */
+        body.touch #screen-title .orientation-note { display: none; }
+        #screen-title .title-kicker { margin-bottom: 8px; }
+        #screen-title .title { margin-bottom: 10px; }
+      }
+
+      .title-lab-chip {
+        position: absolute;
+        right: max(18px, var(--safe-r));
+        bottom: max(16px, var(--safe-b));
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 10px;
+        border: 1px solid rgba(173, 192, 200, 0.18);
+        border-radius: 2px;
+        background: rgba(8, 11, 15, 0.55);
+        font: 700 11px/1.2 var(--ui-font);
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        color: #b4c3cf;
+        pointer-events: none;
+      }
+      .title-lab-chip b {
+        color: var(--silver-hi);
+        letter-spacing: 0.1em;
+        font-variant-numeric: tabular-nums;
+        text-transform: none;
+      }
+      .title-lab-chip b:empty { display: none; }
+
+      /* Start: the lockup fades and slides away while the camera glides into
+         the player's eyes; the HUD and touch controls arrive as it settles.
+         `inert` (set by Game) keeps the fading screen from taking input. */
+      #screen-title.title-leaving {
+        animation: title-leave 560ms cubic-bezier(0.4, 0, 0.2, 1) both;
+        pointer-events: none;
+      }
+      #screen-title.title-leaving .title-panel {
+        animation: title-leave-panel 600ms cubic-bezier(0.4, 0, 0.2, 1) both;
+      }
+      @keyframes title-leave { from { opacity: 1; } to { opacity: 0; } }
+      @keyframes title-leave-panel { to { transform: translateX(-28px); } }
+      body.run-intro #hud:not([hidden]) { animation: menu-fade 620ms ease-out 980ms both; }
+      body.run-intro #touch:not([hidden]) { animation: menu-fade 480ms ease-out 900ms both; }
+
+      /* Narrow and portrait (aspect below 1.15, the same test the attract
+         camera uses to frame): one centred column from the top, with the
+         airlock and its hatch framed in the space underneath. */
+      @media (max-aspect-ratio: 23/20) {
+        #screen-title.title-screen {
+          place-items: start center;
+          align-content: start;
+          text-align: center;
+          padding-top: max(clamp(20px, 7vh, 72px), var(--safe-t));
+          padding-left: max(16px, var(--safe-l));
+          padding-right: max(16px, var(--safe-r));
+          background:
+            linear-gradient(180deg, rgba(5, 7, 10, 0.86) 0%, rgba(5, 7, 10, 0.74) 52%,
+              rgba(5, 7, 10, 0.3) 78%, rgba(5, 7, 10, 0.12) 100%);
+        }
+        #screen-title .title-panel { align-items: center; }
+        .title-kicker { justify-content: center; letter-spacing: 0.26em; font-size: 10px; }
+        /* The phone text floor holds on the title as well. */
+        body.touch .title-kicker { font-size: 11px; letter-spacing: 0.2em; }
+        body.touch .tagline-sub { font-size: 11px; letter-spacing: 0.1em; }
+        #screen-title .title-main {
+          align-items: center;
+          font-size: clamp(46px, min(17vw, 11vh), 120px);
+        }
+        #screen-title .tagline { padding-left: 0; border-left: 0; letter-spacing: 0.2em; }
+        #screen-title .title-actions { align-items: stretch; width: min(300px, 100%); margin-top: 24px; }
+        #screen-title .title-actions .btn { text-align: center; padding-left: 40px; padding-right: 40px; }
+        #screen-title .title-records { justify-content: center; }
+        .title-lab-chip { display: none; }
+      }
+
+      /* A wide but short window: the actions go side by side. */
+      @media (min-aspect-ratio: 23/20) and (max-height: 640px) {
+        .tagline-sub { display: none; }
+        .title-kicker { margin-bottom: 10px; }
+        #screen-title .title { margin-bottom: 14px; }
+        #screen-title .title-actions {
+          flex-direction: row;
+          width: auto;
+          margin-top: 18px;
+          gap: 8px;
+        }
+        #screen-title .title-actions .btn,
+        #screen-title .title-actions .btn-primary {
+          padding: 12px 18px;
+          font-size: clamp(12px, 1.6vw, 15px);
+          letter-spacing: 0.14em;
+          text-align: center;
+        }
+        #screen-title .title-actions .btn-primary { padding-right: 36px; }
+        #screen-title .title-actions .btn-primary::after { right: 15px; width: 7px; height: 7px; margin-top: -4px; }
+        #screen-title .hint { margin-top: 12px; }
+      }
+
+      /* Short landscape (a phone on its side): the column keeps the left, the
+         actions go side by side, and the fine print goes. */
+      @media (max-height: 460px) and (orientation: landscape) {
+        #screen-title.title-screen { padding-top: max(10px, var(--safe-t)); padding-bottom: max(10px, var(--safe-b)); }
+        .title-kicker { display: none; }
+        #screen-title .title { margin-bottom: 10px; }
+        #screen-title .title-main { font-size: clamp(38px, 14.5vh, 64px); }
+        .tagline-sub { display: none; }
+        #screen-title .title-actions {
+          flex-direction: row;
+          width: auto;
+          margin-top: 14px;
+          gap: 8px;
+        }
+        #screen-title .title-actions .btn,
+        #screen-title .title-actions .btn-primary {
+          padding: 10px 16px;
+          font-size: clamp(12px, 1.6vw, 14px);
+          letter-spacing: 0.14em;
+          text-align: center;
+        }
+        #screen-title .title-actions .btn-primary { padding-right: 34px; }
+        #screen-title .title-actions .btn-primary::after { right: 14px; width: 7px; height: 7px; margin-top: -4px; }
+        #screen-title .title-records { margin-top: 8px; }
+        #screen-title .hint { margin-top: 8px; line-height: 1.5; }
+        #screen-title .project-credit { margin-top: 0; }
+      }
+      /* Very short landscape (Safari with its tab bar, ~250 px): a smaller
+         lockup and no tagline, so the hints and the credit fit above the home
+         indicator without the title screen scrolling. */
+      @media (max-height: 300px) and (orientation: landscape) {
+        #screen-title .title-main { font-size: 28px; }
+        #screen-title .title { margin-bottom: 4px; }
+        #screen-title .tagline { display: none; }
+        #screen-title .title-actions { margin-top: 2px; }
+        #screen-title .title-actions .btn-sub { display: none; }
+        #screen-title .hint { margin-top: 4px; line-height: 1.4; font-size: 11px; }
+        /* The options card cannot fit 250 px on any tab, so it scrolls; Back
+           and Reset ride the bottom edge (as Results' actions do) instead of
+           waiting below the fold. The overlay's own padding (at least the
+           bottom inset) already keeps them off the home indicator. */
+        #screen-settings .result-title { font-size: 18px; margin-bottom: 0; }
+        #screen-settings .settings-actions {
+          position: sticky;
+          bottom: 0;
+          z-index: 1;
+          margin: 0 -18px;
+          padding: 6px 18px 4px;
+          background: linear-gradient(180deg, rgba(10, 13, 18, 0), rgba(10, 13, 18, 0.94) 26%);
+        }
+      }
+
+      /* ------------------------- endings (stage 2) ----------------------- */
+      /* How a run ends, over the live canvas. Plain DOM, never a WebGL pass.
+         `ui/EndingView.ts` writes --drain and --vignette (0..1) while a death
+         plays; the victory beat is CSS timed from the class landing. */
+      #ending {
+        position: fixed;
+        inset: 0;
+        z-index: 7;
+        pointer-events: none;
+        --drain: 0;
+        --vignette: 0;
+      }
+      #ending > * { position: absolute; inset: 0; pointer-events: none; }
+      #ending .ending-vignette,
+      #ending .ending-flash,
+      #ending .ending-banner,
+      #ending .ending-secure { display: none; }
+
+      /* Death: one grey layer by saturation takes the colour out of everything
+         beneath it. It is a direct child of #app, never inside #ending: a
+         blend inside a stacking context only sees that context's own content,
+         and #ending's is transparent. */
+      #ending-drain {
+        position: fixed;
+        inset: 0;
+        z-index: 7;
+        pointer-events: none;
+        display: none;
+        background: rgb(118, 122, 128);
+        mix-blend-mode: saturation;
+        opacity: 0;
+      }
+      body.run-ending #ending-drain.on { display: block; }
+
+      /* A cold veil and a heartbeat-driven vignette close in. */
+      #ending.death .ending-vignette {
+        display: block;
+        background:
+          radial-gradient(ellipse 72% 68% at 50% 52%, rgba(10, 4, 3, 0) 30%, rgba(26, 6, 3, 0.62) 78%, rgba(8, 2, 1, 0.92) 100%),
+          linear-gradient(180deg, rgba(14, 18, 24, 0.22), rgba(14, 18, 24, 0.32));
+        opacity: var(--vignette);
+      }
+
+      /* Victory: a bright teal-white bloom of light from the core, then the
+         facility's own status line, large. */
+      #ending.victory .ending-flash {
+        display: block;
+        background:
+          radial-gradient(ellipse 60% 55% at 50% 50%, rgba(236, 255, 252, 0.85), rgba(79, 224, 217, 0.32) 46%, rgba(31, 201, 194, 0) 78%);
+        animation: ending-flash 1500ms cubic-bezier(0.2, 0.7, 0.2, 1) 80ms both;
+      }
+      #ending.victory .ending-banner {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 0 16px;
+        text-align: center;
+        animation: ending-banner-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
+        transition: opacity 260ms ease-out;
+      }
+      /* The card takes the frame: the banner and flash give way to it. An
+         animation, because the entrance's fill would outrank a plain opacity. */
+      #ending.victory.ending-card .ending-banner { animation: ending-give-way 260ms ease-out both; }
+      #ending.victory.ending-card .ending-flash { animation: ending-give-way 400ms ease-out both; }
+      #ending .ending-banner::before,
+      #ending .ending-banner::after {
+        content: '';
+        width: min(560px, 82vw);
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--teal) 22%, #e8fffd 50%, var(--teal) 78%, transparent);
+        animation: ending-rule 900ms cubic-bezier(0.16, 1, 0.3, 1) 220ms both;
+      }
+      #ending .ending-kicker {
+        font-size: clamp(11px, 1.4vw, 13px);
+        font-weight: 800;
+        letter-spacing: 0.42em;
+        text-indent: 0.42em;
+        text-transform: uppercase;
+        color: #a9f4ef;
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.6);
+      }
+      #ending .ending-title {
+        font-size: clamp(26px, 6.4vw, 64px);
+        font-weight: 900;
+        line-height: 1;
+        letter-spacing: 0.12em;
+        text-indent: 0.12em;
+        text-transform: uppercase;
+        color: #effffd;
+        text-shadow:
+          0 0 18px rgba(79, 224, 217, 0.85), 0 0 46px rgba(31, 201, 194, 0.55),
+          0 3px 0 rgba(6, 40, 38, 0.9), 0 8px 24px rgba(0, 0, 0, 0.6);
+        animation: ending-title-in 900ms cubic-bezier(0.16, 1, 0.3, 1) 140ms both;
+      }
+      #ending .ending-sub {
+        font-size: clamp(11px, 1.5vw, 14px);
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        text-indent: 0.22em;
+        text-transform: uppercase;
+        color: var(--silver-hi);
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.7), 0 0 14px rgba(0, 0, 0, 0.6);
+      }
+      @keyframes ending-flash {
+        0% { opacity: 0; }
+        12% { opacity: 1; }
+        100% { opacity: 0.16; }
+      }
+      @keyframes ending-banner-in { from { opacity: 0; } to { opacity: 1; } }
+      @keyframes ending-give-way { to { opacity: 0; } }
+      @keyframes ending-rule { from { transform: scaleX(0); opacity: 0; } to { transform: scaleX(1); opacity: 1; } }
+      @keyframes ending-title-in {
+        from { letter-spacing: 0.5em; text-indent: 0.5em; filter: brightness(2.2); opacity: 0; }
+        to { letter-spacing: 0.12em; text-indent: 0.12em; filter: none; opacity: 1; }
+      }
+
+      /* The "continue" hint, once a skip is allowed. */
+      #ending .ending-skip {
+        inset: auto 0 max(22px, calc(var(--safe-b) + 14px)) 0;
+        text-align: center;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.3em;
+        text-indent: 0.3em;
+        text-transform: uppercase;
+        color: rgba(222, 232, 238, 0.7);
+        text-shadow: 0 1px 0 rgba(0, 0, 0, 0.8);
+        opacity: 0;
+        transition: opacity 300ms ease-out;
+      }
+      #ending .ending-skip.show { opacity: 1; }
+
+      /* A secured sector: the screen edge breathes teal once. */
+      #ending.secure-pulse .ending-secure {
+        display: block;
+        box-shadow: inset 0 0 120px rgba(79, 224, 217, 0.2), inset 0 0 22px rgba(79, 224, 217, 0.16);
+        animation: ending-secure 1100ms ease-out both;
+      }
+      @keyframes ending-secure { 0% { opacity: 0; } 20% { opacity: 1; } 100% { opacity: 0; } }
+
+      /* …and the status line it is announced on gets a sweep and a settle. */
+      #status.flourish::after {
+        content: '';
+        position: absolute;
+        left: 14%;
+        right: 14%;
+        bottom: 0;
+        height: 2px;
+        background: linear-gradient(90deg, transparent, var(--teal) 25%, #e8fffd 50%, var(--teal) 75%, transparent);
+        transform-origin: 50% 50%;
+        animation: status-sweep 1300ms cubic-bezier(0.16, 1, 0.3, 1) both;
+      }
+      #status.flourish .status-main { animation: status-settle 700ms cubic-bezier(0.16, 1, 0.3, 1) both; }
+      @keyframes status-sweep {
+        0% { transform: scaleX(0); opacity: 0; }
+        25% { opacity: 1; }
+        70% { transform: scaleX(1); opacity: 1; }
+        100% { transform: scaleX(1); opacity: 0; }
+      }
+      @keyframes status-settle {
+        from { letter-spacing: 0.44em; text-indent: 0.44em; text-shadow: 0 0 22px rgba(79, 224, 217, 0.9); }
+        to { letter-spacing: 0.26em; text-indent: 0.26em; }
+      }
+
+      /* The run's controls leave with it. */
+      body.run-ending #hud:not([hidden]),
+      body.run-ending #touch:not([hidden]) {
+        opacity: 0;
+        transition: opacity 380ms ease-out;
+        animation: none;
+      }
+
+      /* ------------------------- screen transitions ---------------------- */
+      /* Pause rises in over the frozen frame; Results slides in over the last
+         frame of the run. Back to play, both fade away rather than vanish
+         (`ui/Hud.ts` keeps the leaving screen up, inert, for the fade). */
+      #screen-pause:not([hidden]) .pause-panel {
+        animation: panel-rise 260ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+      }
+      #screen-over:not([hidden]) { animation: menu-fade 360ms ease-out both; }
+      #screen-over:not([hidden]) .results {
+        animation: results-in 520ms cubic-bezier(0.16, 1, 0.3, 1) 60ms both;
+      }
+      @keyframes panel-rise {
+        from { opacity: 0; transform: translateY(10px) scale(0.975); }
+        to { opacity: 1; transform: none; }
+      }
+      @keyframes results-in {
+        from { opacity: 0; transform: translateY(34px) scale(0.985); }
+        to { opacity: 1; transform: none; }
+      }
+      .overlay.overlay-leaving,
+      #screen-over.overlay-leaving {
+        animation: overlay-leave 200ms ease-in both;
+        pointer-events: none;
+      }
+      .overlay.overlay-leaving .menu-panel,
+      #screen-pause.overlay-leaving .pause-panel,
+      #screen-over.overlay-leaving .results {
+        animation: panel-leave 200ms ease-in both;
+      }
+      @keyframes overlay-leave { from { opacity: 1; } to { opacity: 0; } }
+      @keyframes panel-leave { to { opacity: 0; transform: translateY(6px) scale(0.985); } }
+
+      @media (prefers-reduced-motion: reduce) {
+        #ending *, #status.flourish::after, #status.flourish .status-main { animation: none !important; transition: none !important; }
+        #ending.victory .ending-flash { opacity: 0.22; }
+      }
+      body.reduce-motion #ending *,
+      body.reduce-motion #status.flourish::after,
+      body.reduce-motion #status.flourish .status-main { animation: none !important; transition: none !important; }
+      body.reduce-motion #ending.victory .ending-flash { opacity: 0.22; }
+      #ending.victory.ending-card .ending-banner,
+      #ending.victory.ending-card .ending-flash { opacity: 0; }
+
+      /* ---------------------------------------------------------------
+         Boot veil (wave 5, cam). The title lockup is HTML and paints with
+         the first byte; the laboratory behind it does not exist until the
+         renderer is chosen, the facility is generated and every pipeline has
+         compiled. Until the first *complete* attract frame is on the canvas
+         this veil sits between the canvas and the title: never a blank page,
+         never the in-game view with the cannon up, never a half-compiled
+         frame. `Game.liftBootVeil` removes `body.booting`; the veil fades and
+         the live airlock is revealed behind the lockup. A Start pressed while
+         preparing is kept (`start-queued`) and runs the moment the lab is ready.
+         ================================================================= */
+      #boot-veil {
+        position: fixed;
+        inset: 0;
+        z-index: 9;
+        pointer-events: none;
+        background:
+          radial-gradient(ellipse 70% 60% at 68% 46%, rgba(41, 52, 67, 0.5), rgba(13, 15, 19, 0) 70%),
+          linear-gradient(180deg, #10141a 0%, var(--steel-0) 100%);
+        opacity: 1;
+        transition: opacity 560ms cubic-bezier(0.4, 0, 0.2, 1), visibility 0s linear 560ms;
+      }
+      body:not(.booting) #boot-veil { opacity: 0; visibility: hidden; }
+      body.boot-cut #boot-veil { transition: none; }
+      .boot-status {
+        position: absolute;
+        left: 58%;
+        top: 50%;
+        width: min(340px, 34vw);
+        transform: translateY(-50%);
+        display: flex;
+        flex-direction: column;
+        gap: 12px;
+        font: 800 clamp(11px, 1.15vw, 14px)/1.2 var(--ui-font);
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #e2eaf0;
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.85);
+      }
+      .boot-status .boot-label { display: flex; align-items: center; gap: 10px; }
+      .boot-status .boot-label::before {
+        content: '';
+        flex: none;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--teal);
+        box-shadow: 0 0 8px rgba(31, 201, 194, 0.8);
+        animation: kicker-lamp 1.1s ease-in-out infinite;
+      }
+      .boot-bar {
+        position: relative;
+        display: block;
+        height: 3px;
+        overflow: hidden;
+        background: linear-gradient(90deg, rgba(176, 138, 94, 0.15), rgba(176, 138, 94, 0.55), rgba(176, 138, 94, 0.15));
+      }
+      .boot-bar i {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 34%;
+        background: linear-gradient(90deg, rgba(31, 201, 194, 0), var(--teal), rgba(31, 201, 194, 0));
+        animation: boot-sweep 1.25s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+      @keyframes boot-sweep { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
+      /* Stages (owner's playtest: a slow first load looked like a dead site).
+         One message shows at a time, stacked in one grid cell so a swap never
+         changes the block's height; the fill steps forward per stage. */
+      .boot-text { display: grid; }
+      .boot-msg { grid-area: 1 / 1; opacity: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      body.boot-stage-download .boot-msg-download { opacity: 1; animation: boot-msg-hide 300ms 7s forwards; }
+      body.boot-stage-download .boot-msg-slow { animation: boot-msg-show 300ms 7s forwards, boot-msg-hide 300ms 30s forwards; }
+      body.boot-stage-download .boot-msg-stuck { animation: boot-msg-show 300ms 30s forwards; }
+      body.boot-stage-build .boot-msg-build,
+      body.boot-stage-compile .boot-msg-compile,
+      body.boot-stage-rebuild .boot-msg-rebuild { opacity: 1; }
+      /* A Retry, New lab, Daily or Restart on WebGPU (Game.restartBehindVeil):
+         the veil goes up over the menu it was pressed on, then the lab is
+         rebuilt behind it. Only this stage sits above the overlays. */
+      body.boot-stage-rebuild #boot-veil { z-index: 11; }
+      /* No stages to count through a rebuild: the sweep alone, no fill. */
+      body.boot-stage-rebuild .boot-bar b { width: 0; transition: none; }
+      @keyframes boot-msg-show { to { opacity: 1; } }
+      @keyframes boot-msg-hide { to { opacity: 0; } }
+      .boot-bar b {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 0;
+        background: var(--teal);
+        opacity: 0.7;
+        transition: width 600ms cubic-bezier(0.2, 0.7, 0.3, 1);
+      }
+      /* The download has no byte count to show, so the fill eases toward half
+         way and never claims to finish; real stages take it the rest. */
+      body.boot-stage-download .boot-bar b { animation: boot-creep 24s cubic-bezier(0.1, 0.6, 0.3, 1) forwards; }
+      body.boot-stage-build .boot-bar b { width: 68%; }
+      body.boot-stage-compile .boot-bar b { width: 88%; }
+      @keyframes boot-creep { from { width: 4%; } to { width: 55%; } }
+      /* Narrow and portrait: at the foot of the screen, under the centred
+         title stack. A fixed fraction up the screen landed on the credit line
+         (360×740) and the orientation note (375×667); at boot there are never
+         title records, so the stack ends above this band on every phone. */
+      @media (max-aspect-ratio: 23/20) {
+        .boot-status { left: 50%; top: auto; bottom: calc(max(14px, 3%) + var(--safe-b)); width: min(260px, 70vw); transform: translateX(-50%); }
+      }
+      /* Short landscape (a phone held sideways): level with the lockup's word
+         mark, not its button row, which reaches past 58% on a 667 px screen. */
+      @media (min-aspect-ratio: 23/20) and (max-height: 480px) {
+        .boot-status { top: 30%; }
+      }
+      body.reduce-motion .boot-bar i,
+      body.reduce-motion .boot-status .boot-label::before { animation: none; }
+      @media (prefers-reduced-motion: reduce) {
+        .boot-bar i { animation: none; left: 33%; }
+        .boot-status .boot-label::before { animation: none; }
+      }
+      /* While the first compile runs, Start says it is getting ready; a press
+         is kept and announced, never dropped. */
+      body.boot-preparing #screen-title .title-actions .btn { cursor: progress; }
+      body.start-queued #screen-title #btn-start,
+      body.start-queued #screen-title #btn-daily:focus {
+        box-shadow: 0 0 0 1px var(--teal), 0 0 18px rgba(31, 201, 194, 0.35);
+        animation: start-queued 900ms ease-in-out infinite alternate;
+      }
+      @keyframes start-queued { from { filter: brightness(1); } to { filter: brightness(1.25); } }
+      /* A Start waiting on the run's own compile keeps the title up and the
+         HUD back; the glide and the HUD's arrival begin together on release. */
+      body.run-held #hud,
+      body.run-held #touch { visibility: hidden; }
     </style>
-    <script type="module" crossorigin src="./assets/index-D7FgOTf3.js"></script>
-  </head>
-  <body>
+      </head>
+  <body class="booting boot-preparing boot-stage-download">
     <div id="app">
       <canvas id="view"></canvas>
+      <!-- Boot veil: over the canvas, under the title, until the first complete
+           frame of the laboratory is drawn (Game.liftBootVeil). -->
+      <div id="boot-veil" aria-hidden="true">
+        <!-- Staged, so a slow first visit never reads as a dead page: the
+             download stage needs no script (CSS swaps in "still downloading"
+             after 7 s and a reload hint after 30 s); `main.ts` moves the stage
+             on once the game code has arrived (`setBootStage`). -->
+        <div class="boot-status">
+          <span class="boot-label"><span class="boot-text">
+            <span class="boot-msg boot-msg-download">Downloading game</span>
+            <span class="boot-msg boot-msg-slow">Still downloading…</span>
+            <span class="boot-msg boot-msg-stuck">Slow connection — try reloading</span>
+            <span class="boot-msg boot-msg-build">Building laboratory</span>
+            <span class="boot-msg boot-msg-compile">Warming up shaders</span>
+            <span class="boot-msg boot-msg-rebuild">Rebuilding laboratory</span>
+          </span></span>
+          <span class="boot-bar"><b></b><i></i></span>
+        </div>
+      </div>
 
       <!-- HUD -------------------------------------------------------- -->
       <div id="hud" hidden>
         <div id="fps-counter" hidden>FPS —</div>
-        <div id="crosshair"></div>
-        <div id="hitmarker"></div>
         <div id="damage"></div>
+        <div id="vignette-low"></div>
+        <svg id="threat-ring" viewBox="-160 -160 320 320" aria-hidden="true"></svg>
+        <div id="crosshair">
+          <svg class="xh-ring" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="xh-track" cx="22" cy="22" r="15"></circle>
+            <circle class="xh-charge" id="xh-charge" cx="22" cy="22" r="15"></circle>
+          </svg>
+          <i class="xh-tick"></i><i class="xh-tick"></i><i class="xh-tick"></i><i class="xh-tick"></i>
+          <i class="xh-dot"></i>
+          <!-- Dash recharge: a short arc under the reticle, lit only while it refills. -->
+          <svg class="xh-dash-ring" viewBox="0 0 44 44" aria-hidden="true">
+            <circle class="xh-dash-track" cx="22" cy="22" r="19.5"></circle>
+            <circle class="xh-dash" id="xh-dash" cx="22" cy="22" r="19.5"></circle>
+          </svg>
+        </div>
+        <div id="hitmarker" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
+        <div id="killmarker" aria-hidden="true"><div class="km-ring"></div><i></i><i></i><i></i><i></i></div>
         <div id="minimap">
-          <div class="label">Facility Scan</div>
+          <div class="label"><span><span class="scan-long">Facility </span>Scan</span><span id="scan-sectors"></span></div>
           <canvas id="minimap-canvas" role="img" aria-label="Discovered facility minimap"></canvas>
         </div>
-        <div id="status">
+        <div id="status" role="status" aria-live="polite">
           <div class="status-main" id="status-main"></div>
           <div class="status-sub" id="status-sub"></div>
         </div>
-        <div id="score-pop"></div>
-        <div id="integrity">
-          <div class="label">Suit Integrity</div>
-          <div class="bar"><div class="fill" id="integrity-fill"></div></div>
+        <div id="objective">
+          <div id="boss" hidden>
+            <div class="boss-head"><span id="boss-name"></span><span id="boss-phase"></span></div>
+            <div class="boss-bar" id="boss-bar"><div id="boss-ghost"></div><div id="boss-fill"></div></div>
+          </div>
+          <div id="wave" hidden>
+            <span id="wave-label"></span>
+            <span id="wave-pips"></span>
+            <span id="wave-count"></span>
+          </div>
         </div>
+        <div id="scoreboard">
+          <div class="sb-label">Score</div>
+          <div id="score-value">0</div>
+        </div>
+        <div id="chain" aria-hidden="true">
+          <div class="chain-row"><span id="chain-count"></span><span class="chain-label">chain</span></div>
+          <div class="chain-bar"><div id="chain-fill"></div></div>
+        </div>
+        <div id="chain-callout" aria-hidden="true"></div>
+        <div id="score-pop" aria-hidden="true"></div>
+        <!-- Boss name card and phase banner (Hud.showBanner). Resting opacity 0. -->
+        <div id="banner" aria-live="assertive">
+          <div class="banner-kicker" id="banner-kicker"></div>
+          <div class="banner-title" id="banner-title"></div>
+          <div class="banner-sub" id="banner-sub"></div>
+        </div>
+        <div id="integrity">
+          <div class="label"><span><span class="int-long">Suit </span>Integrity</span><span id="integrity-heal"></span><b id="integrity-value">100</b></div>
+          <div class="bar"><div class="ghost" id="integrity-ghost"></div><div class="fill" id="integrity-fill"></div><div class="segments"></div></div>
+        </div>
+        <!-- First-run control tip (ui/CoachView.ts). Off the playfield, never
+             interactive, one at a time. -->
+        <div id="coach" role="status" aria-live="polite"><div class="coach-chip" id="coach-chip"></div></div>
         <div id="capture-hint" hidden>
-          Mouse not captured — <b>click</b> to capture, or <b>trackpad click&nbsp;and&nbsp;drag</b> to aim
+          <span class="ch-long">Mouse not captured — <b>click</b> to capture, or <b>trackpad click&nbsp;and&nbsp;drag</b> to aim</span>
+          <span class="ch-short"><b>Click</b> to capture the mouse</span>
         </div>
         <div id="diagnostics">
           <div id="debug" hidden></div>
@@ -1133,9 +3984,9 @@
       <!-- Always in the DOM so `input/Touch.ts` binds to it on every device;
            shown only for a touch-first device and only while gameplay runs. -->
       <div id="touch" hidden>
-        <div id="touch-aim">
-          <div id="touch-fire-ring" aria-hidden="true"></div>
-        </div>
+        <div id="touch-aim"></div>
+        <div id="touch-aim-low"></div>
+        <div id="touch-aim-ring" aria-hidden="true"></div>
         <div id="touch-lane">
           <div id="touch-move"><div id="touch-stick"><div id="touch-knob"></div></div></div>
           <div id="touch-buttons">
@@ -1145,151 +3996,319 @@
                     aria-pressed="false" aria-label="Toggle sprint">Run</button>
           </div>
         </div>
+        <!-- Right-thumb actions. Siblings of the aim surfaces, never children,
+             so a press here can never also start an aim-region gesture. -->
+        <div id="touch-actions">
+          <button class="touch-act" id="touch-dash" type="button" aria-label="Dash">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6l6 6-6 6M12 6l6 6-6 6" /></svg>
+            <span>Dash</span>
+          </button>
+          <button class="touch-act" id="touch-fire" type="button" aria-label="Fire">
+            <span class="fire-core" aria-hidden="true"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Ending layer (endings stage 2) ---------------------------- -->
+      <!-- Plain DOM over the canvas, never a WebGL pass: the death drain is one
+           grey layer blended by saturation, the rest gradients and type.
+           Driven by `ui/EndingView.ts` from `render/ending.ts`. -->
+      <div id="ending-drain" aria-hidden="true"></div>
+      <div id="ending" aria-hidden="true">
+        <div class="ending-vignette"></div>
+        <div class="ending-flash"></div>
+        <div class="ending-secure"></div>
+        <div class="ending-banner">
+          <span class="ending-kicker">Facility status</span>
+          <b class="ending-title">Containment restored</b>
+          <span class="ending-sub">Every specimen popped · the core is quiet</span>
+        </div>
+        <div class="ending-skip" id="ending-skip"></div>
       </div>
 
       <!-- Title ------------------------------------------------------ -->
-      <div class="overlay" id="screen-title">
-        <div>
-          <div class="title">
-            <div class="title-main">
-              <span class="title-clawd">CLAWD</span><span class="title-pop">POP</span>
+      <!-- Live title: the run's own entry airlock is drawn behind it by the
+           attract camera (`render/AttractScene.ts`). The lockup sits in a left
+           column on wide screens so the exit hatch — and what waits beyond it —
+           stays in view on the right; narrow screens stack it centred. -->
+      <div class="overlay overlay-live title-screen" id="screen-title" role="dialog" aria-labelledby="title-name">
+        <div class="menu-panel title-panel stagger">
+          <div class="title-kicker"><span class="kicker-lamp" aria-hidden="true"></span>Specimen containment facility</div>
+          <div class="title" id="title-name" role="heading" aria-level="1" aria-label="Clawd Pop 3D">
+            <div class="title-main" aria-hidden="true">
+              <span class="title-clawd">CLAWD</span>
+              <span class="title-line2"><span class="title-pop">POP</span><span class="title-3d">3D</span></span>
             </div>
-            <div class="title-3d">3D</div>
           </div>
-          <div class="tagline">Containment has failed</div>
-          <div class="btn-row" style="margin-top: 30px">
-            <button class="btn" id="btn-start">Start Run</button>
+          <div class="tagline">Containment has failed. <span class="tagline-sub">Pop every specimen · reach the core</span></div>
+          <div class="btn-row title-actions">
+            <button class="btn btn-primary" id="btn-start" data-autofocus>Start Run</button>
+            <button class="btn btn-daily" id="btn-daily" aria-describedby="daily-desc">Daily Lab<small class="btn-sub" id="daily-desc">Same lab for every player today</small></button>
             <button class="btn" id="btn-options">Options</button>
           </div>
+          <div class="title-records" id="title-records" hidden></div>
           <div class="hint hint-desktop">
-            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; mouse look
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; mouse aim
             &nbsp;·&nbsp; click fire<br />
-            <kbd>Shift</kbd> sprint &nbsp;·&nbsp; <kbd>Esc</kbd> pause
-            &nbsp;·&nbsp; <kbd>R</kbd> restart &nbsp;·&nbsp; <kbd>M</kbd> mute
-            &nbsp;·&nbsp; <kbd>F3</kbd> debug
+            <kbd>Shift</kbd> sprint &nbsp;·&nbsp; <kbd>Space</kbd> dash
+            &nbsp;·&nbsp; <kbd>Esc</kbd> pause &nbsp;·&nbsp; <kbd>M</kbd> mute
           </div>
           <div class="hint hint-touch">
-            Left stick moves &nbsp;·&nbsp; drag the right side to aim<br />
-            Tap the right side to fire &nbsp;·&nbsp; <b>Run</b> sprints
-            &nbsp;·&nbsp; <b>&#10073;&#10073;</b> pauses
+            Left stick moves &nbsp;·&nbsp; push past the rim to run<br />
+            Drag right to aim &nbsp;·&nbsp; hold <b>Fire</b> and slide to shoot while turning
+            &nbsp;·&nbsp; <b>Dash</b> dodges
           </div>
           <div class="orientation-note">Landscape plays best — portrait works too</div>
           <div class="project-credit">A fan project by <a href="https://github.com/VibezZzCoder/clawd-pop" target="_blank" rel="noopener noreferrer">VibezZzCoder</a></div>
         </div>
+        <div class="title-lab-chip" aria-hidden="true"><span>Lab</span><b id="title-lab"></b></div>
       </div>
 
       <!-- Pause ------------------------------------------------------ -->
-      <div class="overlay" id="screen-pause" hidden>
-        <div>
-          <div class="result-title" style="color: var(--steel-4)">PAUSED</div>
-          <div class="btn-row" style="margin-top: 24px">
-            <button class="btn" id="btn-resume">Resume</button>
+      <!-- Live: the frozen frame stays visible behind it. Clicking anything that
+           is not a button resumes (the backdrop and the panel alike). -->
+      <div class="overlay overlay-live" id="screen-pause" hidden role="dialog" aria-labelledby="pause-title">
+        <div class="menu-panel pause-panel stagger">
+          <div class="result-title" id="pause-title">PAUSED</div>
+          <div class="pause-context" id="pause-context"></div>
+          <div class="btn-grid pause-actions">
+            <button class="btn btn-primary" id="btn-resume" data-autofocus>Resume</button>
             <button class="btn" id="btn-options-pause">Options</button>
+            <button class="btn btn-confirm" id="btn-restart" data-label="Restart"
+                    data-confirm="Confirm restart">Restart</button>
+            <button class="btn btn-confirm" id="btn-quit" data-label="Quit to Title"
+                    data-confirm="Confirm quit">Quit to Title</button>
           </div>
-          <div class="hint hint-desktop">Click the backdrop to resume &nbsp;·&nbsp; <kbd>R</kbd> restart</div>
-          <div class="hint hint-touch">Tap the backdrop to resume</div>
+          <div class="pause-note" id="pause-note" aria-live="polite"></div>
+          <div class="hint hint-desktop">
+            <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> move &nbsp;·&nbsp; mouse aim &nbsp;·&nbsp; click fire<br />
+            <kbd>Shift</kbd> sprint &nbsp;·&nbsp; <kbd>Space</kbd> dash &nbsp;·&nbsp; <kbd>M</kbd> mute<br />
+            <kbd>Esc</kbd> resume &nbsp;·&nbsp; <kbd>R</kbd> twice restarts
+          </div>
+          <div class="hint hint-touch">Tap anywhere off a button to resume</div>
           <div class="orientation-note">Landscape plays best — portrait works too</div>
         </div>
       </div>
 
-      <!-- Options (Milestone 8A) ------------------------------------- -->
+      <!-- Options (Milestone 8A; regrouped in the overhaul) ---------- -->
       <!-- Reached from the title and the pause screen. It replaces the screen it
            was opened from rather than layering over it, so the pause backdrop's
-           resume-on-click can never sit underneath these controls. -->
-      <div class="overlay" id="screen-settings" hidden>
-        <div class="settings">
-          <div class="result-title" style="color: var(--steel-4)">OPTIONS</div>
-          <div class="settings-rows">
-            <!-- Volume (Milestone 8D). Compact rows rather than stacked ones:
-                 two more full-width sliders would push the screen past the fold
-                 on a 360 px phone, which is the exact failure 8A measured with
-                 the quality button group. A volume slider does not need the
-                 travel a sensitivity slider does. -->
-            <div class="setting setting-compact">
-              <span class="setting-name" id="opt-master-label">Master volume</span>
-              <output class="setting-value" id="opt-master-value"></output>
-              <input class="setting-range" id="opt-master" type="range"
-                     aria-labelledby="opt-master-label" />
-            </div>
-            <div class="setting setting-compact">
-              <span class="setting-name" id="opt-effects-label">Effects volume
-                <small>Cannon, specimens, pops and alarms</small></span>
-              <output class="setting-value" id="opt-effects-value"></output>
-              <input class="setting-range" id="opt-effects" type="range"
-                     aria-labelledby="opt-effects-label" />
-            </div>
-            <div class="setting setting-compact">
-              <span class="setting-name" id="opt-mouse-label">Mouse sensitivity</span>
-              <output class="setting-value" id="opt-mouse-value"></output>
-              <input class="setting-range" id="opt-mouse" type="range"
-                     aria-labelledby="opt-mouse-label" />
-            </div>
-            <div class="setting setting-compact">
-              <span class="setting-name" id="opt-touch-label">Touch sensitivity
-                <small>Portrait keeps its 2&times; turning rate</small></span>
-              <output class="setting-value" id="opt-touch-value"></output>
-              <input class="setting-range" id="opt-touch" type="range"
-                     aria-labelledby="opt-touch-label" />
-            </div>
-            <div class="setting">
-              <span class="setting-name">Invert vertical aim</span>
-              <button class="setting-toggle" id="opt-invert" type="button"
-                      aria-pressed="false" aria-label="Invert vertical aim">Off</button>
-            </div>
-            <div class="setting">
-              <span class="setting-name">Auto-fire on touch
-                <small>Hold the aim side to keep firing</small></span>
-              <button class="setting-toggle" id="opt-autofire" type="button"
-                      aria-pressed="false" aria-label="Auto-fire on touch">Off</button>
-            </div>
-            <div class="setting setting-stack">
-              <span class="setting-name" id="opt-quality-label">Quality</span>
-              <div class="setting-choice" id="opt-quality" role="radiogroup"
-                   aria-labelledby="opt-quality-label">
-                <button type="button" role="radio" aria-checked="true" data-quality="auto">Auto</button>
-                <button type="button" role="radio" aria-checked="false" data-quality="high">High</button>
-                <button type="button" role="radio" aria-checked="false" data-quality="medium">Medium</button>
-                <button type="button" role="radio" aria-checked="false" data-quality="low">Low</button>
+           resume-on-click can never sit underneath these controls.
+
+           One tab panel per group. A new option is one `.setting` row placed in
+           the panel it belongs to; `opt-mouse-only` / `opt-touch-only` hide a row
+           on devices it does nothing for (CSS only). -->
+      <div class="overlay overlay-live" id="screen-settings" hidden role="dialog" aria-labelledby="opt-title">
+        <div class="menu-panel settings stagger">
+          <div class="result-title" id="opt-title">OPTIONS</div>
+          <div class="settings-tabs" id="opt-tabs" role="tablist" aria-label="Option groups">
+            <button type="button" role="tab" id="opt-tab-controls" data-tab="controls"
+                    aria-controls="opt-panel-controls" aria-selected="true">Controls</button>
+            <button type="button" role="tab" id="opt-tab-display" data-tab="display"
+                    aria-controls="opt-panel-display" aria-selected="false" tabindex="-1">Display</button>
+            <button type="button" role="tab" id="opt-tab-audio" data-tab="audio"
+                    aria-controls="opt-panel-audio" aria-selected="false" tabindex="-1">Audio</button>
+            <button type="button" role="tab" id="opt-tab-access" data-tab="access"
+                    aria-controls="opt-panel-access" aria-selected="false" tabindex="-1"
+                    aria-label="Accessibility"><span class="tab-long">Accessibility</span><span class="tab-short">Access</span></button>
+          </div>
+          <div class="settings-panels">
+            <!-- Controls -->
+            <div class="settings-rows" id="opt-panel-controls" role="tabpanel"
+                 aria-labelledby="opt-tab-controls" data-group="controls">
+              <div class="setting setting-compact opt-mouse-only">
+                <span class="setting-name" id="opt-mouse-label">Mouse sensitivity</span>
+                <output class="setting-value" id="opt-mouse-value"></output>
+                <input class="setting-range" id="opt-mouse" type="range"
+                       aria-labelledby="opt-mouse-label" />
+              </div>
+              <div class="setting setting-compact opt-touch-only">
+                <span class="setting-name" id="opt-touch-label">Touch sensitivity
+                  <small>Portrait keeps its 2&times; turning rate</small></span>
+                <output class="setting-value" id="opt-touch-value"></output>
+                <input class="setting-range" id="opt-touch" type="range"
+                       aria-labelledby="opt-touch-label" />
+              </div>
+              <div class="setting">
+                <span class="setting-name">Invert vertical aim</span>
+                <button class="setting-toggle" id="opt-invert" type="button"
+                        aria-pressed="false" aria-label="Invert vertical aim">Off</button>
+              </div>
+              <div class="setting opt-touch-only">
+                <span class="setting-name">Auto-fire on touch
+                  <small>Fire without the trigger: a resting aim thumb keeps shooting</small></span>
+                <button class="setting-toggle" id="opt-autofire" type="button"
+                        aria-pressed="false" aria-label="Auto-fire on touch">Off</button>
+              </div>
+              <!-- Read-only key map: what every key does, on any device with one. -->
+              <div class="setting setting-keys opt-mouse-only" role="group" aria-label="Keys">
+                <span class="setting-name">Keys</span>
+                <dl class="keymap">
+                  <div><dt><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></dt><dd>Move</dd></div>
+                  <div><dt><kbd>Mouse</kbd></dt><dd>Aim · click to fire</dd></div>
+                  <div><dt><kbd>Shift</kbd></dt><dd>Sprint</dd></div>
+                  <div><dt><kbd>Space</kbd></dt><dd>Dash</dd></div>
+                  <div><dt><kbd>Esc</kbd></dt><dd>Pause</dd></div>
+                  <div><dt><kbd>R</kbd> <kbd>R</kbd></dt><dd>Restart</dd></div>
+                  <div><dt><kbd>M</kbd></dt><dd>Mute</dd></div>
+                  <div><dt><kbd>F3</kbd></dt><dd>Diagnostics</dd></div>
+                </dl>
+              </div>
+              <!-- Touch sessions on haptic-capable hardware only (input/Haptics.ts). -->
+              <div class="setting setting-haptics opt-touch-only" id="opt-haptics-row" hidden>
+                <span class="setting-name">Haptics
+                  <small>Vibrate on shots, pops and hits</small></span>
+                <button class="setting-toggle" id="opt-haptics" type="button"
+                        aria-pressed="true" aria-label="Haptics">On</button>
               </div>
             </div>
-            <div class="setting">
-              <span class="setting-name">Adaptive quality
-                <small>Lowers resolution if frames stay slow</small></span>
-              <button class="setting-toggle" id="opt-adaptive" type="button"
-                      aria-pressed="true" aria-label="Adaptive quality">On</button>
+            <!-- Display -->
+            <div class="settings-rows" id="opt-panel-display" role="tabpanel"
+                 aria-labelledby="opt-tab-display" data-group="display" hidden>
+              <div class="setting setting-stack">
+                <span class="setting-name" id="opt-quality-label">Quality</span>
+                <div class="setting-choice" id="opt-quality" role="radiogroup"
+                     aria-labelledby="opt-quality-label">
+                  <button type="button" role="radio" aria-checked="true" data-quality="auto">Auto</button>
+                  <button type="button" role="radio" aria-checked="false" data-quality="high">High</button>
+                  <button type="button" role="radio" aria-checked="false" data-quality="medium">Medium</button>
+                  <button type="button" role="radio" aria-checked="false" data-quality="low">Low</button>
+                  <button type="button" role="radio" aria-checked="false" data-quality="phone"
+                          title="Tuned for phones: sharp, no shadows">Phone</button>
+                </div>
+              </div>
+              <div class="setting setting-stack">
+                <span class="setting-name" id="opt-renderer-label">Renderer
+                  <small id="opt-renderer-active">Applies on reload</small></span>
+                <div class="setting-choice" id="opt-renderer" role="radiogroup"
+                     aria-labelledby="opt-renderer-label">
+                  <button type="button" role="radio" aria-checked="true" data-renderer="auto"
+                          title="WebGPU where the browser supports it, otherwise WebGL">Auto</button>
+                  <button type="button" role="radio" aria-checked="false" data-renderer="webgpu">WebGPU</button>
+                  <button type="button" role="radio" aria-checked="false" data-renderer="webgl">WebGL</button>
+                </div>
+              </div>
+              <div class="setting">
+                <span class="setting-name">Adaptive quality
+                  <small>Lowers resolution if frames stay slow</small></span>
+                <button class="setting-toggle" id="opt-adaptive" type="button"
+                        aria-pressed="true" aria-label="Adaptive quality">On</button>
+              </div>
+              <div class="setting">
+                <span class="setting-name">Frame rate counter</span>
+                <button class="setting-toggle" id="opt-fps" type="button"
+                        aria-pressed="false" aria-label="Frame rate counter">Off</button>
+              </div>
             </div>
-            <div class="setting">
-              <span class="setting-name">Frame rate counter</span>
-              <button class="setting-toggle" id="opt-fps" type="button"
-                      aria-pressed="false" aria-label="Frame rate counter">Off</button>
+            <!-- Audio -->
+            <div class="settings-rows" id="opt-panel-audio" role="tabpanel"
+                 aria-labelledby="opt-tab-audio" data-group="audio" hidden>
+              <div class="setting setting-compact">
+                <span class="setting-name" id="opt-master-label">Master volume</span>
+                <output class="setting-value" id="opt-master-value"></output>
+                <input class="setting-range" id="opt-master" type="range"
+                       aria-labelledby="opt-master-label" />
+              </div>
+              <div class="setting setting-compact">
+                <span class="setting-name" id="opt-effects-label">Effects volume
+                  <small>Cannon, specimens, pops and alarms</small></span>
+                <output class="setting-value" id="opt-effects-value"></output>
+                <input class="setting-range" id="opt-effects" type="range"
+                       aria-labelledby="opt-effects-label" />
+              </div>
+              <div class="setting setting-compact">
+                <span class="setting-name" id="opt-music-label">Music volume</span>
+                <output class="setting-value" id="opt-music-value"></output>
+                <input class="setting-range" id="opt-music" type="range"
+                       aria-labelledby="opt-music-label" />
+              </div>
+              <div class="setting setting-compact">
+                <span class="setting-name" id="opt-ambience-label">Ambience volume
+                  <small>The facility's hum, vents and machinery</small></span>
+                <output class="setting-value" id="opt-ambience-value"></output>
+                <input class="setting-range" id="opt-ambience" type="range"
+                       aria-labelledby="opt-ambience-label" />
+              </div>
+              <!-- The same switch as M; the slider levels are kept underneath. -->
+              <div class="setting">
+                <span class="setting-name">Mute all audio
+                  <small>Same as <kbd>M</kbd> — your volume levels are kept</small></span>
+                <button class="setting-toggle" id="opt-mute" type="button"
+                        aria-pressed="false" aria-label="Mute all audio">Off</button>
+              </div>
+            </div>
+            <!-- Accessibility -->
+            <div class="settings-rows" id="opt-panel-access" role="tabpanel"
+                 aria-labelledby="opt-tab-access" data-group="access" hidden>
+              <div class="setting">
+                <span class="setting-name">Screen shake
+                  <small>Camera shake, recoil punch and field-of-view kicks</small></span>
+                <button class="setting-toggle" id="opt-shake" type="button"
+                        aria-pressed="true" aria-label="Screen shake">Full</button>
+              </div>
+              <div class="setting">
+                <span class="setting-name">Reduce motion
+                  <small>Calmer HUD and menus; your system setting also applies</small></span>
+                <button class="setting-toggle" id="opt-reduce-motion" type="button"
+                        aria-pressed="false" aria-label="Reduce motion">Off</button>
+              </div>
+              <div class="setting">
+                <span class="setting-name">Control tips
+                  <small>Short first-run hints, each shown once</small></span>
+                <button class="setting-toggle" id="opt-hints" type="button"
+                        aria-pressed="true" aria-label="Control tips">On</button>
+              </div>
+              <div class="setting">
+                <span class="setting-name" id="opt-replay-label">Replay tips
+                  <small>Show every tip again from the next run</small></span>
+                <button class="setting-toggle" id="opt-replay-tips" type="button"
+                        aria-labelledby="opt-replay-label">Replay</button>
+              </div>
             </div>
           </div>
           <div class="setting-note" id="opt-note" hidden></div>
-          <div class="btn-row">
-            <button class="btn" id="btn-settings-back">Back</button>
+          <div class="btn-row settings-actions">
+            <button class="btn btn-primary" id="btn-settings-back" data-autofocus>Back</button>
+            <button class="btn btn-ghost btn-confirm" id="btn-settings-reset" data-label="Reset"
+                    data-confirm="Confirm reset">Reset</button>
             <button class="btn" id="btn-settings-reload" hidden>Reload</button>
           </div>
-          <div class="hint">
-            Options last for this session &nbsp;·&nbsp; nothing here changes what a seed generates
-          </div>
+          <div class="hint settings-foot">Changes apply instantly and are saved on this device</div>
         </div>
       </div>
 
       <!-- Results ---------------------------------------------------- -->
-      <div class="overlay" id="screen-over" hidden>
-        <div>
-          <div class="result-title" id="over-title">CONTAINMENT LOST</div>
-          <div class="result-score" id="over-score"></div>
-          <div class="result-stats" id="over-stats"></div>
-          <div class="btn-row">
-            <button class="btn" id="btn-retry">Same Seed</button>
-            <button class="btn" id="btn-newseed">New Seed</button>
+      <!-- Live: the last frame of the run — the paint, the room — stays visible
+           behind the card. Filled in by `ui/ResultsScreen.ts`. -->
+      <div class="overlay overlay-live" id="screen-over" hidden role="dialog" aria-labelledby="over-title">
+        <div class="menu-panel results">
+          <div class="results-head stagger">
+            <div class="result-kicker" id="over-kicker"></div>
+            <div class="result-title" id="over-title">CONTAINMENT LOST</div>
+            <div class="result-story" id="over-story" aria-live="polite"></div>
           </div>
-          <div class="hint hint-desktop">Press <kbd>R</kbd> for a new seed</div>
-          <div class="hint hint-touch">Same Seed replays this laboratory &nbsp;·&nbsp; New Seed builds another</div>
+          <div class="results-hero">
+            <div class="grade" id="over-grade" aria-label="Grade"><b id="over-grade-letter">C</b><small>/100</small></div>
+            <div class="hero-score">
+              <div class="result-score" id="over-score">0</div>
+              <div class="best-stamp" id="over-stamp" hidden></div>
+              <div class="result-best" id="over-best"></div>
+              <div class="grade-terms" id="over-terms" role="group"></div>
+              <div class="grade-advice" id="over-advice"></div>
+            </div>
+          </div>
+          <dl class="result-stats" id="over-stats"></dl>
+          <div class="sector-log" id="over-log"></div>
+          <div class="btn-row results-actions">
+            <button class="btn btn-primary" id="btn-retry" data-autofocus>Retry <kbd class="key hint-key">R</kbd></button>
+            <button class="btn" id="btn-newseed">New Lab</button>
+            <button class="btn" id="btn-daily-over">Daily Lab</button>
+            <button class="btn" id="btn-title">Title</button>
+          </div>
         </div>
       </div>
     </div>
 
-  </body>
+  <script id="boot-loader" data-webgl="./assets/index-CLnUbySw.js" data-webgpu="./assets/webgpu-Dhzb9YGt.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
+</body>
 </html>
