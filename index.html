@@ -3872,12 +3872,66 @@
       /* While the first compile runs, Start says it is getting ready; a press
          is kept and announced, never dropped. */
       body.boot-preparing #screen-title .title-actions .btn { cursor: progress; }
-      body.start-queued #screen-title #btn-start,
-      body.start-queued #screen-title #btn-daily:focus {
+      /* The pressed button (`start-pressed`, set by Game) says the lab is
+         being built until the glide begins (owner's live playtest: the
+         compile pause after Start "might look like the game froze"). */
+      body.start-queued #screen-title .title-actions .btn.start-pressed {
         box-shadow: 0 0 0 1px var(--teal), 0 0 18px rgba(31, 201, 194, 0.35);
         animation: start-queued 900ms ease-in-out infinite alternate;
       }
       @keyframes start-queued { from { filter: brightness(1); } to { filter: brightness(1.25); } }
+      #screen-title .title-actions .btn-sub .sub-busy { display: none; }
+      body.start-queued #screen-title .title-actions .btn.start-pressed .btn-sub { display: block; color: #8fe9e3; }
+      body.start-queued #screen-title .title-actions .btn.start-pressed .sub-idle { display: none; }
+      body.start-queued #screen-title .title-actions .btn.start-pressed .sub-busy {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+      }
+      body.start-queued #screen-title .title-actions .btn.start-pressed .sub-busy::before {
+        content: '';
+        width: 6px;
+        height: 6px;
+        border-radius: 50%;
+        background: var(--teal);
+        box-shadow: 0 0 8px rgba(31, 201, 194, 0.8);
+        animation: kicker-lamp 1.1s ease-in-out infinite;
+      }
+      body.start-queued #screen-title .title-actions .btn.start-pressed::after { opacity: 0; }
+      /* ≤ 300 px landscape hides the idle lines; the busy one still shows,
+         paid for from the button's own padding so its height (44 px) and
+         everything below it stay put. */
+      @media (max-height: 300px) and (orientation: landscape) {
+        body.start-queued #screen-title .title-actions .btn.start-pressed { padding-top: 4px; padding-bottom: 4px; }
+        body.start-queued #screen-title .title-actions .btn.start-pressed .btn-sub { margin-top: 1px; line-height: 11px; white-space: nowrap; }
+      }
+      #screen-title .title-actions .btn-load {
+        display: none;
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        height: 2px;
+        overflow: hidden;
+        background: rgba(31, 201, 194, 0.18);
+      }
+      #screen-title .title-actions .btn-load::before {
+        content: '';
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 34%;
+        background: linear-gradient(90deg, rgba(31, 201, 194, 0), var(--teal), rgba(31, 201, 194, 0));
+        animation: boot-sweep 1.25s cubic-bezier(0.45, 0, 0.55, 1) infinite;
+      }
+      body.start-queued #screen-title .title-actions .btn.start-pressed .btn-load { display: block; }
+      body.reduce-motion #screen-title .title-actions .btn-load::before,
+      body.reduce-motion #screen-title .title-actions .sub-busy::before { animation: none; left: 33%; }
+      @media (prefers-reduced-motion: reduce) {
+        #screen-title .title-actions .btn-load::before,
+        #screen-title .title-actions .sub-busy::before { animation: none; left: 33%; }
+      }
       /* A Start waiting on the run's own compile keeps the title up and the
          HUD back; the glide and the HUD's arrival begin together on release. */
       body.run-held #hud,
@@ -4042,8 +4096,8 @@
           </div>
           <div class="tagline">Containment has failed. <span class="tagline-sub">Pop every specimen · reach the core</span></div>
           <div class="btn-row title-actions">
-            <button class="btn btn-primary" id="btn-start" data-autofocus>Start Run</button>
-            <button class="btn btn-daily" id="btn-daily" aria-describedby="daily-desc">Daily Lab<small class="btn-sub" id="daily-desc">Same lab for every player today</small></button>
+            <button class="btn btn-primary" id="btn-start" data-autofocus aria-describedby="start-desc">Start Run<small class="btn-sub" id="start-desc"><span class="sub-idle">A new lab every run</span><span class="sub-busy">Building laboratory…</span></small><span class="btn-load" aria-hidden="true"></span></button>
+            <button class="btn btn-daily" id="btn-daily" aria-describedby="daily-desc">Daily Lab<small class="btn-sub" id="daily-desc"><span class="sub-idle">Same lab for every player today</span><span class="sub-busy">Building today's lab…</span></small><span class="btn-load" aria-hidden="true"></span></button>
             <button class="btn" id="btn-options">Options</button>
           </div>
           <div class="title-records" id="title-records" hidden></div>
@@ -4309,6 +4363,6 @@
       </div>
     </div>
 
-  <script id="boot-loader" data-webgl="./assets/index-CLnUbySw.js" data-webgpu="./assets/webgpu-Dhzb9YGt.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
+  <script id="boot-loader" data-webgl="./assets/index-hBSoyh_1.js" data-webgpu="./assets/webgpu-CTaFHYUh.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
 </body>
 </html>
