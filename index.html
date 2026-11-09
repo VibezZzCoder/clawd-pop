@@ -4245,7 +4245,7 @@
                 <div class="setting-choice" id="opt-renderer" role="radiogroup"
                      aria-labelledby="opt-renderer-label">
                   <button type="button" role="radio" aria-checked="true" data-renderer="auto"
-                          title="WebGPU where the browser supports it, otherwise WebGL">Auto</button>
+                          title="WebGL on phones and tablets; WebGPU on computers that support it">Auto</button>
                   <button type="button" role="radio" aria-checked="false" data-renderer="webgpu">WebGPU</button>
                   <button type="button" role="radio" aria-checked="false" data-renderer="webgl">WebGL</button>
                 </div>
@@ -4371,6 +4371,6 @@
       </div>
     </div>
 
-  <script id="boot-loader" data-webgl="./assets/index-ryOLBRRr.js" data-webgpu="./assets/webgpu-DRRydwL_.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
+  <script id="boot-loader" data-webgl="./assets/index-DFuY12Dt.js" data-webgpu="./assets/webgpu-_R1q4k96.js">(function(){const n=document.currentScript.dataset,c=new URLSearchParams(location.search),a=(t,r)=>{const o=document.createElement("script");o.type="module",o.src=t,r&&(o.onerror=r),document.head.appendChild(o)};let e=c.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}const i=navigator,l=typeof matchMedia=="function"&&matchMedia("(pointer: coarse)").matches&&(i.maxTouchPoints??0)>=1;if(e==="webgl"||l&&!(e==="webgpu"||e==="webgpu-strict"))return a(n.webgl);const s=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{c.set("renderer","webgl"),c.set("fallback","module-load-failed"),location.replace(`?${c}${location.hash}`)})},u=i.gpu;if(!u)return s(null);Promise.race([u.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(s,()=>s(null))})();</script>
 </body>
 </html>
