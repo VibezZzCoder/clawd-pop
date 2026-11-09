@@ -2,6 +2,10 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
+    <!-- No scale limit here, so menus stay zoomable. `ui/TouchLayer.ts` adds
+         `maximum-scale=1, user-scalable=no` only while the touch controls are
+         on screen: Firefox on iOS zoomed mid-fight, and nothing in play could
+         pinch it back out. -->
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="color-scheme" content="dark" />
     <!-- Installed-app shell. `black-translucent` puts the status bar over the
@@ -77,6 +81,10 @@
            the game losing input. Scoped to the document, which owns scrolling —
            this is not a gesture blocker and cannot swallow a button press. */
         overscroll-behavior: none;
+        /* iOS inflates text after a rotation unless told not to; every size
+           here is already chosen for the phone (the 11 px floor). */
+        -webkit-text-size-adjust: 100%;
+        text-size-adjust: 100%;
         background: var(--steel-0);
         color: var(--steel-4);
         font-family: var(--ui-font);
@@ -4363,6 +4371,6 @@
       </div>
     </div>
 
-  <script id="boot-loader" data-webgl="./assets/index-qtUN9_c2.js" data-webgpu="./assets/webgpu-DkOFmJZV.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
+  <script id="boot-loader" data-webgl="./assets/index-3QKwTFGf.js" data-webgpu="./assets/webgpu-jm4WvM8v.js">(function(){const n=document.currentScript.dataset,o=new URLSearchParams(location.search),a=(t,r)=>{const c=document.createElement("script");c.type="module",c.src=t,r&&(c.onerror=r),document.head.appendChild(c)};let e=o.get("renderer");if(!["auto","webgpu","webgl","webgpu-strict"].includes(e))try{e=JSON.parse(localStorage.getItem("clawdpop.options.v1")).renderer}catch{e=null}if(e==="webgl")return a(n.webgl);const l=t=>{const r=e==="webgpu-strict";if(!t&&!r)return a(n.webgl);a(n.webgpu,r?void 0:()=>{o.set("renderer","webgl"),o.set("fallback","module-load-failed"),location.replace(`?${o}${location.hash}`)})},s=navigator.gpu;if(!s)return l(null);Promise.race([s.requestAdapter({powerPreference:"high-performance"}),new Promise(t=>{setTimeout(t,3e3)})]).then(l,()=>l(null))})();</script>
 </body>
 </html>
